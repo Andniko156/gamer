@@ -2,3 +2,5 @@
 build/
 export_credentials.cfg
 *.keystore
+
+*.keystore.pass.txt

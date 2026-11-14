@@ -1,0 +1,395 @@
+local run = require "game.run"
+local data = require "game.data"
+
+local WIDTH, HEIGHT = 432, 768
+local CX, CY = WIDTH/2, HEIGHT*0.47
+local STEP = 1/60
+local GOLD = vmath.vector4(1,0.76,0.43,1)
+local INK = vmath.vector4(0.10,0.085,0.12,1)
+local PANEL = vmath.vector4(0.16,0.13,0.18,1)
+local TEAL = vmath.vector4(0.50,0.88,0.77,1)
+local WHITE = vmath.vector4(0.96,0.89,0.81,1)
+local RED = vmath.vector4(0.92,0.48,0.39,1)
+local FLOOR_LINE = vmath.vector4(0.21,0.17,0.21,1)
+local NEUTRAL = vmath.vector4(1,1,1,1)
+
+local function box(x,y,w,h,color)
+    local node=gui.new_box_node(vmath.vector3(x,y,0),vmath.vector3(w,h,0))
+    gui.set_color(node,color)
+    return node
+end
+
+local function label(x,y,text,size,color)
+    local n=gui.new_text_node(vmath.vector3(x,y,0),text)
+    gui.set_font(n,"hud")
+    gui.set_scale(n,vmath.vector3(size/24,size/24,1))
+    gui.set_color(n,color)
+    return n
+end
+
+local function sprite(x,y,w,h,id)
+    local n=box(x,y,w,h,WHITE)
+    gui.set_color(n,vmath.vector4(1,1,1,1))
+    gui.set_texture(n,"sprites")
+    gui.play_flipbook(n,id)
+    gui.set_size_mode(n,gui.SIZE_MODE_MANUAL)
+    gui.set_size(n,vmath.vector3(w,h,0))
+    return n
+end
+
+local function remember(self,n)
+    gui.set_layer(n,"menu")
+    self.menu[#self.menu+1]=n
+    return n
+end
+
+local function control(self,x,y,w,h,name,action)
+    local hit=remember(self,box(x,y,w,h,PANEL))
+    remember(self,label(x,y,name,17,GOLD))
+    self.buttons[#self.buttons+1]={hit=hit,action=action}
+end
+
+local function clear_menu(self)
+    for _,n in ipairs(self.menu) do gui.delete_node(n) end
+    self.menu,self.buttons={},{}
+end
+
+local function save(self)
+    sys.save(sys.get_save_file("latunnaya_noch","profile"),self.profile)
+end
+
+local function allowed(self,i)
+    local p=self.profile
+    return i==1 or (i==2 and (p.time or 0)>=45) or (i==3 and (p.level or 0)>=5)
+        or (i==4 and (p.kills or 0)>=100) or (i==5 and p.won)
+end
+
+local show_hangar, show_level, show_pause, finish, start
+
+local function actor(self,name)
+    if self.actor_anim~=name then
+        gui.play_flipbook(self.actor,name)
+        self.actor_anim=name
+    end
+end
+
+show_hangar=function(self)
+    clear_menu(self)
+    self.mode="hangar"
+    self.run=nil
+    gui.set_enabled(self.actor,false)
+    remember(self,box(CX,CY,412,615,INK))
+    remember(self,label(CX,675,"ЛАТУННАЯ НОЧЬ",33,GOLD))
+    remember(self,label(CX,630,"Литейная № 7",18,TEAL))
+    for i,h in ipairs(data.heroes) do
+        local index=i
+        local x=64+(i-1)*76
+        local hit=remember(self,box(x,542,64,72,i==self.hero and vmath.vector4(0.38,0.26,0.25,1) or PANEL))
+        remember(self,sprite(x,545,52,52,h[2].."_0"))
+        if not allowed(self,i) then remember(self,label(x,507,"Закрыт",12,WHITE)) end
+        self.buttons[#self.buttons+1]={hit=hit,action=function() self.hero=index;show_hangar(self) end}
+    end
+    remember(self,label(CX,459,data.heroes[self.hero][1],24,WHITE))
+    remember(self,label(CX,421,data.weapons[self.hero],17,TEAL))
+    local gates={"","Открытие · выжить 45 секунд","Открытие · достичь 5 уровня","Открытие · победить 100 машин","Открытие · победить Смотрителя"}
+    if not allowed(self,self.hero) then remember(self,label(CX,388,gates[self.hero],15,WHITE)) end
+    local names={"Полевой устав","Штурмовой устав","Караульный устав"}
+    local notes={"+16 к дальности сбора","+12% урона, +10% входящего","−14% входящего, −6% скорости"}
+    control(self,CX,324,340,52,names[self.doctrine],function()
+        self.doctrine=self.doctrine%3+1;show_hangar(self)
+    end)
+    remember(self,label(CX,284,notes[self.doctrine],14,WHITE))
+    if allowed(self,self.hero) then control(self,CX,210,340,58,"Начать вылазку",function() start(self) end) end
+    remember(self,label(CX,144,"Веди палец по арене. Оружие стреляет само.",15,WHITE))
+    remember(self,label(CX,114,"На компьютере · WASD или стрелки",14,TEAL))
+end
+
+start=function(self)
+    clear_menu(self)
+    self.run=run.new(self.hero,os.time(),self.doctrine)
+    self.mode,self.remainder,self.drag,self.banish="run",0,nil,false
+    self.actor_anim=nil
+    actor(self,data.heroes[self.hero][2].."_0")
+    gui.set_enabled(self.actor,true)
+end
+
+show_level=function(self)
+    clear_menu(self)
+    self.mode="level"
+    self.drag=nil
+    local s=self.run
+    remember(self,box(CX,CY,400,368,INK))
+    remember(self,label(CX,509,self.banish and "Исключить предмет" or "Выбери усиление",25,GOLD))
+    for i,id in ipairs(s.options) do
+        local item=id
+        local rank=id<=5 and s.weapon[id] or id<=11 and s.artifact[id-5] or nil
+        local title=run.item_name(id)..(rank and (" · "..(rank+1).."/"..(id<=5 and 6 or 5)) or "")
+        control(self,CX,456-i*56,350,48,title,function()
+            if run.choose(s,item,self.banish) then
+                if self.banish then self.banish=false;show_level(self)
+                else clear_menu(self);self.mode="run" end
+            end
+        end)
+    end
+    control(self,123,224,165,44,"Сменить · "..s.rerolls,function()
+        if run.reroll(s) then self.banish=false;show_level(self) end
+    end)
+    control(self,307,224,165,44,self.banish and "Отмена" or "Исключить · "..s.banishes,function()
+        if s.banishes>0 then self.banish=not self.banish;show_level(self) end
+    end)
+end
+
+show_pause=function(self)
+    clear_menu(self)
+    self.mode,self.drag="pause",nil
+    remember(self,box(CX,CY,380,260,INK))
+    remember(self,label(CX,445,"Пауза",26,GOLD))
+    control(self,CX,374,320,50,"Продолжить",function() clear_menu(self);self.mode="run" end)
+    control(self,CX,308,320,50,"Завершить вылазку",function() finish(self) end)
+end
+
+local function clock(t)
+    return string.format("%02d:%02d",math.floor(t/60),math.floor(t)%60)
+end
+
+finish=function(self)
+    clear_menu(self)
+    self.mode,self.drag="ended",nil
+    local s,p=self.run,self.profile
+    p.time,p.level=math.max(p.time or 0,s.time),math.max(p.level or 0,s.level)
+    p.kills=(p.kills or 0)+s.kills
+    p.won=p.won or s.won or false
+    save(self)
+    remember(self,box(CX,CY,395,420,INK))
+    remember(self,label(CX,535,s.won and "Литейная выстояла" or "Вылазка окончена",25,GOLD))
+    remember(self,label(CX,488,clock(s.time).."  ·  Уровень "..s.level.."  ·  Машин "..s.kills,16,TEAL))
+    local ranking={}
+    for id,amount in pairs(s.damage) do ranking[#ranking+1]={id,amount} end
+    table.sort(ranking,function(a,b) return a[2]>b[2] end)
+    for i=1,math.min(4,#ranking) do
+        local entry=ranking[i]
+        remember(self,label(CX,464-i*30,data.weapons[entry[1]].." · "..math.floor(entry[2]).." урона",14,WHITE))
+    end
+    control(self,CX,272,320,48,"Повторить",function() start(self) end)
+    control(self,CX,210,320,48,"В ангар",function() show_hangar(self) end)
+end
+
+function init(self)
+    msg.post(".","acquire_input_focus")
+    self.profile=sys.load(sys.get_save_file("latunnaya_noch","profile"))
+    self.menu,self.buttons,self.keys,self.pool,self.pool_skin,self.floor={},{},{},{},{},{}
+    self.hero,self.doctrine,self.remainder=1,1,0
+    window.set_listener(function(_,event)
+        if event==window.WINDOW_EVENT_FOCUS_LOST then
+            self.keys,self.drag={},nil
+            if self.mode=="run" then show_pause(self) end
+        end
+    end)
+    box(CX,HEIGHT/2,WIDTH,HEIGHT,INK)
+    for i=1,16 do self.floor[i]=box(CX,i*55,WIDTH+55,1,FLOOR_LINE) end
+    for i=17,26 do self.floor[i]=box((i-17)*55,HEIGHT/2,1,HEIGHT+55,FLOOR_LINE) end
+    self.actor=sprite(CX,CY,56,56,"agata_0")
+    gui.set_layer(self.actor,"actor")
+    self.hud=box(CX,720,412,76,INK)
+    self.time_text=label(CX-18,744,"",17,GOLD)
+    self.hp=box(CX,719,366,7,RED)
+    self.xp=box(CX,707,366,6,TEAL)
+    self.more=label(CX,690,"",12,WHITE)
+    self.banner=label(CX,657,"",16,GOLD)
+    self.pause_hit=box(397,743,48,46,PANEL)
+    self.pause_label=label(397,743,"II",18,GOLD)
+    self.stick=box(0,0,66,66,vmath.vector4(0.36,0.29,0.31,0.55))
+    self.thumb=box(0,0,20,20,vmath.vector4(0.89,0.68,0.46,0.75))
+    gui.set_layer(self.stick,"overlay")
+    gui.set_layer(self.thumb,"overlay")
+    gui.set_enabled(self.stick,false)
+    gui.set_enabled(self.thumb,false)
+    self.hud_nodes={self.hud,self.time_text,self.hp,self.xp,self.more,self.banner,self.pause_hit,self.pause_label}
+    for _,n in ipairs(self.hud_nodes) do gui.set_layer(n,"overlay") end
+    show_hangar(self)
+end
+
+local function pooled(self,index)
+    local n=self.pool[index]
+    if not n then
+        n=box(0,0,1,1,WHITE)
+        gui.set_layer(n,"arena")
+        self.pool[index]=n
+    end
+    return n
+end
+
+local function paint(self,x,y,w,h,color,id,angle)
+    if x < -260 or y < -260 or x > WIDTH+260 or y > HEIGHT+260 then return end
+    self.used=self.used+1
+    local node=pooled(self,self.used)
+    gui.set_enabled(node,true)
+    gui.set_position(node,vmath.vector3(x,y,0))
+    gui.set_size(node,vmath.vector3(w,h,0))
+    gui.set_rotation(node,vmath.vector3(0,0,angle or 0))
+    gui.set_color(node,color)
+    local skin=id or "white"
+    if self.pool_skin[self.used]~=skin then
+        gui.set_texture(node,"sprites")
+        gui.play_flipbook(node,skin)
+        self.pool_skin[self.used]=skin
+    end
+end
+
+local function mix(a,b,t) return a+(b-a)*t end
+
+local function render(self,alpha)
+    self.used=0
+    local s=self.run
+    local drag=self.drag
+    gui.set_enabled(self.stick,drag~=nil)
+    gui.set_enabled(self.thumb,drag~=nil)
+    if drag then
+        local anchor=vmath.vector3(drag.ox,drag.oy,0)
+        local shift=vmath.vector3(drag.x-drag.ox,drag.y-drag.oy,0)
+        local length=vmath.length(shift)
+        gui.set_position(self.stick,anchor)
+        gui.set_position(self.thumb,anchor+shift*math.min(1,28/math.max(1,length)))
+    end
+    for _,n in ipairs(self.hud_nodes) do gui.set_enabled(n,self.mode=="run") end
+    if not s then
+        for _,n in ipairs(self.pool) do gui.set_enabled(n,false) end
+        return
+    end
+    for i,n in ipairs(self.floor) do
+        if i<=16 then gui.set_position(n,vmath.vector3(CX,(i-1)*55-self.view_y%55,0))
+        else gui.set_position(n,vmath.vector3((i-17)*55-self.view_x%55,HEIGHT/2,0)) end
+    end
+    for _,l in ipairs(s.loot) do
+        local x,y=CX+l.x-self.view_x,CY+l.y-self.view_y
+        if l.kind=="xp" then
+            local color=l.xp>=10 and RED or (l.xp>=4 and GOLD or TEAL)
+            paint(self,x,y,l.xp>=4 and 9 or 6,l.xp>=4 and 9 or 6,color,nil,45)
+        else
+            paint(self,x,y,27,27,l.evolves and TEAL or NEUTRAL,l.kind=="chest" and "item_12" or "item_13")
+        end
+    end
+    local f=s.formation
+    if f then
+        if f.kind%2==0 then
+            for i=2,13 do
+                local a=f.angle+i*math.pi*2/15
+                paint(self,CX+f.x-self.view_x+205*math.cos(a),CY+f.y-self.view_y+205*math.sin(a),16,16,GOLD,nil,45)
+            end
+            paint(self,CX+f.x-self.view_x+205*math.cos(f.angle),CY+f.y-self.view_y+205*math.sin(f.angle),24,5,TEAL,nil,math.deg(f.angle))
+        else
+            for lane=0,(f.kind==3 and 1 or 0) do
+                paint(self,CX+f.x-self.view_x,CY+f.y-self.view_y,510,214,vmath.vector4(1,0.45,0.32,0.19),nil,math.deg(f.angle)+lane*90)
+            end
+        end
+    end
+    for _,u in ipairs(s.enemies) do
+        local x,y=CX+mix(u.px,u.x,alpha)-self.view_x,CY+mix(u.py,u.y,alpha)-self.view_y
+        local side=u.kind==6 and 72 or u.elite and 57 or u.kind==1 and 38 or 49
+        if u.warning then
+            if u.kind==4 then
+                paint(self,x+55*u.dash_x,y+55*u.dash_y,115,18,vmath.vector4(1,0.36,0.28,0.35),nil,math.deg(math.atan2(u.dash_y,u.dash_x)))
+            else
+                local radius=u.kind==5 and 40 or u.hp<u.max_hp*0.45 and 120 or 96
+                local tx,ty=x,y
+                if u.kind==5 then tx,ty=CX+u.target_x-self.view_x,CY+u.target_y-self.view_y end
+                for i=1,8 do
+                    local a=i*math.pi/4
+                    paint(self,tx+math.cos(a)*radius,ty+math.sin(a)*radius,7,7,RED,nil,45)
+                end
+            end
+        end
+        if u.elite then paint(self,x,y-12,32,4,GOLD) end
+        paint(self,x,y,side,side,(u.flash and u.flash>0) and GOLD or NEUTRAL,"enemy_"..u.kind)
+    end
+    for _,p in ipairs(s.shots) do
+        paint(self,CX+mix(p.px,p.x,alpha)-self.view_x,CY+mix(p.py,p.y,alpha)-self.view_y,12,3,GOLD,nil,math.deg(math.atan2(p.vy,p.vx)))
+    end
+    local amount,radius=run.disks(s)
+    for i=1,amount do
+        local a=s.time*5+i*math.pi*2/amount
+        paint(self,CX+math.cos(a)*radius,CY+math.sin(a)*radius,19,19,TEAL,"item_5",math.deg(a))
+    end
+    for _,e in ipairs(s.effects) do
+        local x,y=CX+e.x-self.view_x,CY+e.y-self.view_y
+        if e.kind==2 then
+            paint(self,x,y,e.r,3,TEAL,nil,math.deg(e.angle))
+        elseif e.kind==3 then
+            for i=-2,2 do
+                local a=e.angle+i*0.25
+                paint(self,x+math.cos(a)*e.r*0.55,y+math.sin(a)*e.r*0.55,e.r*0.5,8,vmath.vector4(1,0.50,0.27,e.life*3),nil,math.deg(a))
+            end
+        else
+            for i=1,8 do
+                local a=i*math.pi/4
+                paint(self,x+math.cos(a)*e.r,y+math.sin(a)*e.r,5,5,e.kind==6 and RED or WHITE,nil,45)
+            end
+        end
+    end
+    for i=self.used+1,#self.pool do gui.set_enabled(self.pool[i],false) end
+    gui.set_position(self.actor,vmath.vector3(CX+mix(s.px,s.x,alpha)-self.view_x,CY+mix(s.py,s.y,alpha)-self.view_y,0))
+    gui.set_color(self.actor,s.invincible>0 and math.floor(s.time*22)%2==0 and TEAL or NEUTRAL)
+    gui.set_scale(self.actor,vmath.vector3(s.dir_x<0 and -1 or 1,1,1))
+    actor(self,data.heroes[self.hero][2]..(s.moving and "_walk" or "_0"))
+    gui.set_text(self.time_text,clock(s.time).."  ·  "..data.waves[s.wave][1])
+    local hp=math.max(0,s.hp/s.max_hp)
+    local xp=math.min(1,s.xp/s.need)
+    gui.set_size(self.hp,vmath.vector3(math.max(1,366*hp),7,0))
+    gui.set_position(self.hp,vmath.vector3(33+183*hp,719,0))
+    gui.set_size(self.xp,vmath.vector3(math.max(1,366*xp),6,0))
+    gui.set_position(self.xp,vmath.vector3(33+183*xp,707,0))
+    gui.set_text(self.more,"Уровень "..s.level.."   ·   Побеждено "..s.kills)
+    local alert=s.notice_until and s.notice_until>s.time and s.notice or ""
+    if alert=="" and s.boss and s.boss.hp>0 then alert="Смотритель · "..math.ceil(s.boss.hp/s.boss.max_hp*100).."%" end
+    gui.set_text(self.banner,alert)
+end
+
+function update(self,dt)
+    if self.mode=="run" then
+        self.remainder=math.min(self.remainder+dt,STEP*5)
+        while self.remainder>=STEP and self.mode=="run" do
+            local mx=(self.keys.right and 1 or 0)-(self.keys.left and 1 or 0)
+            local my=(self.keys.up and 1 or 0)-(self.keys.down and 1 or 0)
+            if self.drag then mx,my=(self.drag.x-self.drag.ox)/41,(self.drag.y-self.drag.oy)/41 end
+            run.step(self.run,STEP,mx,my)
+            self.remainder=self.remainder-STEP
+            if self.run.mode=="level" then show_level(self)
+            elseif self.run.mode=="ended" then finish(self) end
+        end
+    end
+    if self.run then
+        local a=self.mode=="run" and self.remainder/STEP or 1
+        self.view_x=mix(self.run.px,self.run.x,a)
+        self.view_y=mix(self.run.py,self.run.y,a)
+        render(self,a)
+    else
+        render(self,1)
+    end
+end
+
+local KEYS={[hash("up")]="up",[hash("down")]="down",[hash("left")]="left",[hash("right")]="right"}
+local POINTER,PAUSE=hash("pointer"),hash("pause")
+function on_input(self,id,action)
+    local key=KEYS[id]
+    if key then
+        self.keys[key]=not action.released
+        return true
+    end
+    if id==PAUSE and action.pressed then
+        if self.mode=="run" then show_pause(self)
+        elseif self.mode=="pause" then clear_menu(self);self.mode="run" end
+        return true
+    end
+    if action.x and self.drag then self.drag.x,self.drag.y=action.x,action.y end
+    if id~=POINTER then return end
+    if action.released then self.drag=nil;return true end
+    if not action.pressed then return end
+    for _, entry in ipairs(self.buttons) do
+        if gui.pick_node(entry.hit,action.x,action.y) then entry.action();return true end
+    end
+    if self.mode=="run" then
+        if gui.pick_node(self.pause_hit,action.x,action.y) then show_pause(self)
+        else self.drag={ox=action.x,oy=action.y,x=action.x,y=action.y} end
+        return true
+    end
+end

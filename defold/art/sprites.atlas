@@ -1,0 +1,38 @@
+images { image: "/art/white.png" }
+images { image: "/art/agata_0.png" }
+animations { id: "agata_walk" images { image: "/art/agata_1.png" } images { image: "/art/agata_2.png" } images { image: "/art/agata_3.png" } images { image: "/art/agata_4.png" } playback: PLAYBACK_LOOP_FORWARD fps: 11 }
+images { image: "/art/severin_0.png" }
+animations { id: "severin_walk" images { image: "/art/severin_1.png" } images { image: "/art/severin_2.png" } images { image: "/art/severin_3.png" } images { image: "/art/severin_4.png" } playback: PLAYBACK_LOOP_FORWARD fps: 11 }
+images { image: "/art/mira_0.png" }
+animations { id: "mira_walk" images { image: "/art/mira_1.png" } images { image: "/art/mira_2.png" } images { image: "/art/mira_3.png" } images { image: "/art/mira_4.png" } playback: PLAYBACK_LOOP_FORWARD fps: 11 }
+images { image: "/art/bruno_0.png" }
+animations { id: "bruno_walk" images { image: "/art/bruno_1.png" } images { image: "/art/bruno_2.png" } images { image: "/art/bruno_3.png" } images { image: "/art/bruno_4.png" } playback: PLAYBACK_LOOP_FORWARD fps: 11 }
+images { image: "/art/nika_0.png" }
+animations { id: "nika_walk" images { image: "/art/nika_1.png" } images { image: "/art/nika_2.png" } images { image: "/art/nika_3.png" } images { image: "/art/nika_4.png" } playback: PLAYBACK_LOOP_FORWARD fps: 11 }
+images { image: "/art/enemy_1.png" }
+images { image: "/art/enemy_2.png" }
+images { image: "/art/enemy_3.png" }
+images { image: "/art/enemy_4.png" }
+images { image: "/art/enemy_5.png" }
+images { image: "/art/enemy_6.png" }
+images { image: "/art/item_1.png" }
+images { image: "/art/item_2.png" }
+images { image: "/art/item_3.png" }
+images { image: "/art/item_4.png" }
+images { image: "/art/item_5.png" }
+images { image: "/art/item_6.png" }
+images { image: "/art/item_7.png" }
+images { image: "/art/item_8.png" }
+images { image: "/art/item_9.png" }
+images { image: "/art/item_10.png" }
+images { image: "/art/item_11.png" }
+images { image: "/art/item_12.png" }
+images { image: "/art/item_13.png" }
+images { image: "/art/item_14.png" }
+images { image: "/art/item_15.png" }
+images { image: "/art/item_16.png" }
+images { image: "/art/item_17.png" }
+images { image: "/art/item_18.png" }
+margin: 2
+extrude_borders: 2
+inner_padding: 2
