@@ -130,6 +130,7 @@ show_level=function(self)
                 else clear_menu(self);self.mode="run" end
             end
         end)
+        remember(self,sprite(57,456-i*56,24,24,"item_"..(id==12 and 13 or id)))
     end
     control(self,123,224,165,44,"Сменить · "..s.rerolls,function()
         if run.reroll(s) then self.banish=false;show_level(self) end
@@ -205,6 +206,16 @@ function init(self)
     gui.set_enabled(self.stick,false)
     gui.set_enabled(self.thumb,false)
     self.hud_nodes={self.hud,self.time_text,self.hp,self.xp,self.more,self.banner,self.pause_hit,self.pause_label}
+    self.inventory={}
+    self.hud_nodes[#self.hud_nodes+1]=box(CX,62,400,78,INK)
+    self.hud_nodes[#self.hud_nodes+1]=label(120,89,"ОРУЖИЕ · 4",12,GOLD)
+    self.hud_nodes[#self.hud_nodes+1]=label(312,89,"АРТЕФАКТЫ · 4",12,TEAL)
+    for i=1,8 do
+        local x=48+(i-1)*48
+        local slot={background=box(x,60,40,34,PANEL),icon=sprite(x,62,26,26,"white"),rank=label(x,36,"—",11,WHITE)}
+        self.inventory[i]=slot
+        for _,n in pairs(slot) do self.hud_nodes[#self.hud_nodes+1]=n end
+    end
     for _,n in ipairs(self.hud_nodes) do gui.set_layer(n,"overlay") end
     show_hangar(self)
 end
@@ -219,10 +230,11 @@ local function pooled(self,index)
     return n
 end
 
-local function paint(self,x,y,w,h,color,id,angle)
+local function paint(self,x,y,w,h,color,id,angle,layer)
     if x < -260 or y < -260 or x > WIDTH+260 or y > HEIGHT+260 then return end
     self.used=self.used+1
     local node=pooled(self,self.used)
+    gui.set_layer(node,layer or "arena")
     gui.set_enabled(node,true)
     gui.set_position(node,vmath.vector3(x,y,0))
     gui.set_size(node,vmath.vector3(w,h,0))
@@ -287,16 +299,24 @@ local function render(self,alpha)
         local x,y=CX+mix(u.px,u.x,alpha)-self.view_x,CY+mix(u.py,u.y,alpha)-self.view_y
         local side=u.kind==6 and 72 or u.elite and 57 or u.kind==1 and 38 or 49
         if u.warning then
+            local progress=math.max(0,math.min(1,(s.time-u.warning_started)/(u.warning-u.warning_started)))
+            local pulse=vmath.vector4(1,0.45,0.28,0.45+0.45*progress)
             if u.kind==4 then
-                paint(self,x+55*u.dash_x,y+55*u.dash_y,115,18,vmath.vector4(1,0.36,0.28,0.35),nil,math.deg(math.atan2(u.dash_y,u.dash_x)))
+                local reach=data.attacks.ram.duration*data.attacks.ram.speed
+                local angle=math.deg(math.atan2(u.dash_y,u.dash_x))
+                -- Contact includes the player radius, so the lane shows its full unsafe width.
+                paint(self,x+reach*0.5*u.dash_x,y+reach*0.5*u.dash_y,reach+40,40,vmath.vector4(1,0.36,0.28,0.18+progress*0.16),nil,angle,"danger")
+                paint(self,x+reach*u.dash_x,y+reach*u.dash_y,8,40,pulse,nil,angle,"danger")
             else
-                local radius=u.kind==5 and 40 or u.hp<u.max_hp*0.45 and 120 or 96
-                local tx,ty=x,y
-                if u.kind==5 then tx,ty=CX+u.target_x-self.view_x,CY+u.target_y-self.view_y end
-                for i=1,8 do
-                    local a=i*math.pi/4
-                    paint(self,tx+math.cos(a)*radius,ty+math.sin(a)*radius,7,7,RED,nil,45)
+                local radius=u.attack_radius
+                local tx,ty=CX+u.target_x-self.view_x,CY+u.target_y-self.view_y
+                for i=1,16 do
+                    local a=i*math.pi/8
+                    paint(self,tx+math.cos(a)*radius,ty+math.sin(a)*radius,math.max(7,radius*0.39),3,pulse,nil,math.deg(a)+90,"danger")
                 end
+                paint(self,tx,ty,12,3,pulse,nil,0,"danger")
+                paint(self,tx,ty,3,12,pulse,nil,0,"danger")
+                paint(self,tx,ty-9,22*progress+1,3,GOLD,nil,0,"danger")
             end
         end
         if u.elite then paint(self,x,y-12,32,4,GOLD) end
@@ -339,6 +359,24 @@ local function render(self,alpha)
     gui.set_size(self.xp,vmath.vector3(math.max(1,366*xp),6,0))
     gui.set_position(self.xp,vmath.vector3(33+183*xp,707,0))
     gui.set_text(self.more,"Уровень "..s.level.."   ·   Побеждено "..s.kills)
+    local ids={}
+    local next_weapon,next_artifact=1,5
+    for id,rank in ipairs(s.weapon) do
+        if rank>0 then ids[next_weapon]=id;next_weapon=next_weapon+1 end
+    end
+    for id,rank in ipairs(s.artifact) do
+        if rank>0 then ids[next_artifact]=id+5;next_artifact=next_artifact+1 end
+    end
+    for i,slot in ipairs(self.inventory) do
+        local id=ids[i]
+        gui.set_enabled(slot.icon,id~=nil and self.mode=="run")
+        if id then
+            if slot.id~=id then gui.play_flipbook(slot.icon,"item_"..id);slot.id=id end
+            local rank=id<=5 and s.weapon[id] or s.artifact[id-5]
+            gui.set_text(slot.rank,s.evolved[id] and id<=5 and "ЭВО" or rank.."/"..(id<=5 and data.weapon_max or data.artifact_max))
+            gui.set_color(slot.rank,id<=5 and s.evolved[id] and TEAL or WHITE)
+        else gui.set_text(slot.rank,"—") end
+    end
     local alert=s.notice_until and s.notice_until>s.time and s.notice or ""
     if alert=="" and s.boss and s.boss.hp>0 then alert="Смотритель · "..math.ceil(s.boss.hp/s.boss.max_hp*100).."%" end
     gui.set_text(self.banner,alert)

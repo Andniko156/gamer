@@ -1,5 +1,10 @@
 return {
     duration = 600, boss_at = 540, weapon_max = 6, artifact_max = 5, slots = 4,
+    attacks = {
+        ram = {warning=1.05, duration=0.52, speed=221, recovery=0.65},
+        mortar = {warning=1.45, radius=40, recovery=0.45},
+        boss = {warning=1.55, radius=96, enraged_radius=120, recovery=0.8},
+    },
     heroes = {
         {"Агата Клёпка", "agata", 100, 133},
         {"Северин Вольт", "severin", 84, 137},

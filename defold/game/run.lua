@@ -157,7 +157,7 @@ end
 local function attack(s,dt)
     for k, rank in ipairs(s.weapon) do
         s.cooldown[k]=s.cooldown[k]-dt
-        if rank>0 and s.cooldown[k]<=0 then
+        if rank>0 and (k==5 or s.cooldown[k]<=0) then
             local area=(s.hero==3 and 1.22 or 1)*(1+s.artifact[3]*0.07)
             local evo=s.evolved[k]
             local target=closest(s,s.x,s.y,k==1 and 340 or 240*area)
@@ -200,7 +200,7 @@ local function attack(s,dt)
                             damage(s,u,evo and (k==3 and 70 or 108) or 25+rank*6,k)
                             if not u.elite and u.kind~=6 and rank>=4 then
                                 if k==3 then u.slow_until=s.time+0.38
-                                elseif range>0.01 then
+                                elseif range>0.01 and not u.warning then
                                     local force=evo and 34 or 13
                                     u.x,u.y=u.x+ux/range*force,u.y+uy/range*force
                                 end
@@ -215,10 +215,16 @@ local function attack(s,dt)
                 for i=1,amount do
                     local a=s.time*5+i*tau/amount
                     local x,y=s.x+cos(a)*radius,s.y+sin(a)*radius
+                    local previous=(s.time-dt)*5+i*tau/amount
+                    local px,py=s.px+cos(previous)*radius,s.py+sin(previous)*radius
+                    local vx,vy=x-px,y-py
                     for _,u in ipairs(s.enemies) do
-                        local dx,dy=u.x-x,u.y-y
-                        if dx*dx+dy*dy<(d.foes[u.kind][4]+(evo and 22 or 16)*area)^2 then
+                        local dx,dy=u.x-px,u.y-py
+                        local t=max(0,min(1,(dx*vx+dy*vy)/max(0.0001,vx*vx+vy*vy)))
+                        if (not u.disk_hit_at or s.time>=u.disk_hit_at)
+                            and (dx-vx*t)^2+(dy-vy*t)^2<(d.foes[u.kind][4]+(evo and 22 or 16)*area)^2 then
                             damage(s,u,evo and 49 or 20+rank*4,k)
+                            u.disk_hit_at=s.time+(evo and 0.22 or 0.32)*(1-s.artifact[2]*0.06)
                         end
                     end
                 end
@@ -264,27 +270,37 @@ local function enemy_move(s,u,dt)
     local speed=stats[2]*(u.slow_until and u.slow_until>s.time and 0.66 or 1)
     local enraged=u.kind==6 and u.hp<u.max_hp*0.45
     if enraged then speed=speed*1.24 end
-    if u.dash_until and s.time<u.dash_until then
-        u.x,u.y=u.x+u.dash_x*dt*(u.kind==4 and 221 or 118),u.y+u.dash_y*dt*(u.kind==4 and 221 or 118)
-    elseif not u.warning and distance>(u.kind==5 and 155 or stats[4]+5) then
+    local recovering=u.recover_until and s.time<u.recover_until
+    local dashing=u.dash_until and s.time<u.dash_until
+    if dashing then
+        local dash_speed=u.kind==4 and d.attacks.ram.speed or 118
+        u.x,u.y=u.x+u.dash_x*dt*dash_speed,u.y+u.dash_y*dt*dash_speed
+    elseif not u.warning and not recovering and distance>(u.kind==5 and 155 or stats[4]+5) then
         u.x,u.y=u.x+ux*dt*speed,u.y+uy*dt*speed
     end
     if (s.x-u.x)^2+(s.y-u.y)^2<(stats[4]+8)^2 then hurt(s,stats[3]) end
     if u.flash then u.flash=max(0,u.flash-dt) end
-    if u.kind<4 then return end
+    if u.kind<4 or dashing or recovering then return end
     if u.warning then
         if s.time<u.warning then return end
         u.warning=nil
-        if u.kind==4 then u.dash_until=s.time+0.52; return end
-        local x,y=u.x,u.y
-        if u.kind==5 then x,y=u.target_x,u.target_y end
-        local radius=u.kind==5 and 40 or enraged and 120 or 96
+        if u.kind==4 then
+            u.dash_until=s.time+d.attacks.ram.duration
+            u.recover_until=u.dash_until+d.attacks.ram.recovery
+            return
+        end
+        local x,y=u.target_x,u.target_y
+        local radius=u.attack_radius
         if (s.x-x)^2+(s.y-y)^2<radius*radius then hurt(s,u.kind==5 and 19 or 36) end
         effect(s,6,x,y,radius)
+        u.recover_until=s.time+(u.kind==5 and d.attacks.mortar.recovery or d.attacks.boss.recovery)
     elseif u.interval<=s.time and distance<(u.kind==4 and 126 or 253) then
+        local config=u.kind==4 and d.attacks.ram or u.kind==5 and d.attacks.mortar or d.attacks.boss
         u.interval=s.time+(enraged and 3.7 or 5.1)
-        u.warning=s.time+(u.kind==4 and 0.84 or 1.30)
-        u.target_x,u.target_y=s.x,s.y
+        u.warning_started=s.time
+        u.warning=s.time+config.warning
+        u.target_x,u.target_y=u.kind==6 and u.x or s.x,u.kind==6 and u.y or s.y
+        u.attack_radius=(enraged and config.enraged_radius) or config.radius
         u.dash_x,u.dash_y=ux,uy
     end
 end
@@ -412,8 +428,8 @@ function M.step(s,dt,mx,my)
                     if overlap>0 then
                         local shift=min(overlap*0.36,dt*36)
                         local x,y=dist<0.001 and shift or dx/dist*shift,dist<0.001 and 0 or dy/dist*shift
-                        if u.kind~=6 then u.x,u.y=u.x+x,u.y+y end
-                        if v.kind~=6 then v.x,v.y=v.x-x,v.y-y end
+                        if u.kind~=6 and not u.warning then u.x,u.y=u.x+x,u.y+y end
+                        if v.kind~=6 and not v.warning then v.x,v.y=v.x-x,v.y-y end
                     end
                 end end
             end end
