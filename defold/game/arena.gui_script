@@ -95,18 +95,21 @@ show_hangar=function(self)
     if not allowed(self,self.hero) then remember(self,label(CX,388,gates[self.hero],15,WHITE)) end
     local names={"Полевой устав","Штурмовой устав","Караульный устав"}
     local notes={"+16 к дальности сбора","+12% урона, +10% входящего","−14% входящего, −6% скорости"}
-    control(self,CX,324,340,52,names[self.doctrine],function()
+    control(self,CX,339,340,48,names[self.doctrine],function()
         self.doctrine=self.doctrine%3+1;show_hangar(self)
     end)
-    remember(self,label(CX,284,notes[self.doctrine],14,WHITE))
-    if allowed(self,self.hero) then control(self,CX,210,340,58,"Начать вылазку",function() start(self) end) end
-    remember(self,label(CX,144,"Веди палец по арене. Оружие стреляет само.",15,WHITE))
-    remember(self,label(CX,114,"На компьютере · WASD или стрелки",14,TEAL))
+    remember(self,label(CX,303,notes[self.doctrine],14,WHITE))
+    control(self,CX,260,340,48,self.arena==1 and "Арена · Литейная" or "Арена · Паровые каналы",function()
+        self.arena=3-self.arena;show_hangar(self)
+    end)
+    if allowed(self,self.hero) then control(self,CX,188,340,58,"Начать вылазку",function() start(self) end) end
+    remember(self,label(CX,121,"Веди палец по арене. Оружие стреляет само.",15,WHITE))
+    remember(self,label(CX,96,"На компьютере · WASD или стрелки",14,TEAL))
 end
 
 start=function(self)
     clear_menu(self)
-    self.run=run.new(self.hero,os.time(),self.doctrine)
+    self.run=run.new(self.hero,os.time(),self.doctrine,self.arena)
     self.mode,self.remainder,self.drag,self.banish="run",0,nil,false
     self.actor_anim=nil
     actor(self,data.heroes[self.hero][2].."_0")
@@ -179,7 +182,7 @@ function init(self)
     msg.post(".","acquire_input_focus")
     self.profile=sys.load(sys.get_save_file("latunnaya_noch","profile"))
     self.menu,self.buttons,self.keys,self.pool,self.pool_skin,self.floor={},{},{},{},{},{}
-    self.hero,self.doctrine,self.remainder=1,1,0
+    self.hero,self.doctrine,self.arena,self.remainder=1,1,1,0
     window.set_listener(function(_,event)
         if event==window.WINDOW_EVENT_FOCUS_LOST then
             self.keys,self.drag={},nil
@@ -271,6 +274,27 @@ local function render(self,alpha)
     for i,n in ipairs(self.floor) do
         if i<=16 then gui.set_position(n,vmath.vector3(CX,(i-1)*55-self.view_y%55,0))
         else gui.set_position(n,vmath.vector3((i-17)*55-self.view_x%55,HEIGHT/2,0)) end
+    end
+    if s.arena==2 then
+        local cfg=data.vents
+        local bx=math.floor((self.view_x-CX-cfg.offset)/cfg.spacing)
+        local by=math.floor((self.view_y-CY-cfg.offset)/cfg.spacing)
+        for ix=bx,bx+3 do for iy=by,by+4 do
+            local wx,wy=cfg.offset+ix*cfg.spacing,cfg.offset+iy*cfg.spacing
+            local state=run.vent_state(s,wx,wy)
+            local x,y=CX+wx-self.view_x,CY+wy-self.view_y
+            if x>-60 and x<WIDTH+60 and y>-60 and y<HEIGHT+60 then
+                local color=state=="active" and RED or state=="warning" and GOLD or FLOOR_LINE
+                paint(self,x,y,14,14,color,"item_17")
+                for j=1,8 do
+                    local a=j*math.pi/4
+                    paint(self,x+math.cos(a)*cfg.radius,y+math.sin(a)*cfg.radius,12,3,color,nil,math.deg(a)+90,state=="idle" and "arena" or "danger")
+                end
+            end
+        end end
+    end
+    for _,c in ipairs(s.crates) do
+        paint(self,CX+c.x-self.view_x,CY+c.y-self.view_y,34,34,GOLD,"item_"..(13+c.kind))
     end
     for _,l in ipairs(s.loot) do
         local x,y=CX+l.x-self.view_x,CY+l.y-self.view_y

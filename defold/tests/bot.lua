@@ -1,7 +1,7 @@
 local run = require "game.run"
 
-local function simulate(hero, seed)
-    local s = run.new(hero, seed)
+local function simulate(hero, seed, arena)
+    local s = run.new(hero, seed, nil, arena)
     assert(#s.enemies == 10)
     for _=1,36050 do
         if s.mode=="ended" then return s end

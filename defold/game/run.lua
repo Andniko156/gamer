@@ -28,7 +28,7 @@ local function ring_spawn(s, kind, distance, angle, elite)
     return spawn(s, kind, s.x + distance*cos(angle), s.y + distance*sin(angle), elite)
 end
 
-function M.new(hero, seed, doctrine)
+function M.new(hero, seed, doctrine, arena)
     local hp = d.heroes[hero][3]
     local s = {
         hero=hero, seed=seed % 2147483646 + 1, doctrine=doctrine or 1, hp=hp, max_hp=hp, time=0,
@@ -36,6 +36,7 @@ function M.new(hero, seed, doctrine)
         enemies={},shots={},loot={},effects={},weapon={0,0,0,0,0}, artifact={0,0,0,0,0,0},
         evolved={},cooldown={0,0,0,0,0},damage={}, banned={}, rerolls=2, banishes=1,
         next_spawn=2.2,elite_index=1,event_index=1, invincible=0, mode="run",
+        arena=arena or 1, crates={}, next_crate=d.crates.first, frozen_until=0,
     }
     s.weapon[hero]=1
     local angle=random(s)*tau
@@ -128,6 +129,59 @@ local function waves(s)
         if s.time<24 or (kind==4 and rams>=7) or (kind==5 and mortars>=3) then kind=1 end
         if kind==4 then rams=rams+1 elseif kind==5 then mortars=mortars+1 end
         ring_spawn(s,kind,248+random(s)*68,a+i*0.24+(s.wave>=6 and i%2==0 and math.pi or 0))
+    end
+end
+
+local function field_crates(s,dt)
+    if s.time>=s.next_crate then
+        local angle=random(s)*tau
+        s.crates[#s.crates+1]={x=s.x+cos(angle)*d.crates.radius,
+            y=s.y+sin(angle)*d.crates.radius, kind=1+floor(random(s)*3),
+            expires=s.time+d.crates.lifetime}
+        s.next_crate=s.next_crate+d.crates.interval
+    end
+    for i=#s.crates,1,-1 do
+        local c=s.crates[i]
+        if s.time>=c.expires then table.remove(s.crates,i)
+        elseif (s.x-c.x)^2+(s.y-c.y)^2<24^2 and s.hp>0 then
+            if c.kind==1 then
+                s.hp=min(s.max_hp,s.hp+s.max_hp*0.22)
+                s.notice="Ремкомплект · +22% здоровья"
+            elseif c.kind==2 then
+                for _,l in ipairs(s.loot) do
+                    if l.kind=="xp" then
+                        local dx,dy=l.x-s.x,l.y-s.y
+                        if dx*dx+dy*dy<550^2 then l.x,l.y=s.x,s.y end
+                    end
+                end
+                s.notice="Электромагнит · опыт рядом"
+            else
+                s.frozen_until=s.time+3.5
+                s.notice="Холодный пар · враги замедлены"
+            end
+            s.notice_until=s.time+3
+            table.remove(s.crates,i)
+        end
+    end
+end
+
+function M.vent_state(s,x,y)
+    if s.arena~=2 then return "off" end
+    local cfg=d.vents
+    local ix=floor((x-cfg.offset)/cfg.spacing+0.5)
+    local iy=floor((y-cfg.offset)/cfg.spacing+0.5)
+    local cx,cy=cfg.offset+ix*cfg.spacing,cfg.offset+iy*cfg.spacing
+    local phase=(s.time+((ix*7+iy*11)%4)*3)%cfg.cycle
+    local state=phase>=cfg.cycle-cfg.active and "active"
+        or phase>=cfg.cycle-cfg.active-cfg.warning and "warning" or "idle"
+    return state,cx,cy
+end
+
+local function vents(s)
+    if s.arena~=2 then return end
+    local state,cx,cy=M.vent_state(s,s.x,s.y)
+    if state=="active" and (s.x-cx)^2+(s.y-cy)^2<d.vents.radius^2 then
+        hurt(s,12)
     end
 end
 
@@ -268,6 +322,7 @@ local function enemy_move(s,u,dt)
     local distance=sqrt(dx*dx+dy*dy)
     local ux,uy=dx/max(0.001,distance),dy/max(0.001,distance)
     local speed=stats[2]*(u.slow_until and u.slow_until>s.time and 0.66 or 1)
+        *(s.frozen_until>s.time and 0.35 or 1)
     local enraged=u.kind==6 and u.hp<u.max_hp*0.45
     if enraged then speed=speed*1.24 end
     local recovering=u.recover_until and s.time<u.recover_until
@@ -407,6 +462,8 @@ function M.step(s,dt,mx,my)
         s.x,s.y=s.x+mx/max(1,magnitude)*speed*dt,s.y+my/max(1,magnitude)*speed*dt
     end
     s.invincible=max(0,s.invincible-dt)
+    field_crates(s,dt)
+    vents(s)
     waves(s)
     attack(s,dt)
     shots(s,dt)

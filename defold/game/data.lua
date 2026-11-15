@@ -1,5 +1,7 @@
 return {
     duration = 600, boss_at = 540, weapon_max = 6, artifact_max = 5, slots = 4,
+    crates = {first=35, interval=62, lifetime=85, radius=165},
+    vents = {spacing=300, offset=140, cycle=12, warning=1.6, active=1.4, radius=43},
     attacks = {
         ram = {warning=1.05, duration=0.52, speed=221, recovery=0.65},
         mortar = {warning=1.45, radius=40, recovery=0.45},
