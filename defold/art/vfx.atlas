@@ -1,0 +1,12 @@
+images { image: "/art/vfx_rivet.png" }
+images { image: "/art/vfx_arc.png" }
+images { image: "/art/vfx_flame.png" }
+images { image: "/art/vfx_steam.png" }
+images { image: "/art/vfx_saw.png" }
+images { image: "/art/vfx_storm.png" }
+images { image: "/art/vfx_furnace.png" }
+images { image: "/art/vfx_pressure.png" }
+images { image: "/art/vfx_triple.png" }
+margin: 2
+extrude_borders: 2
+inner_padding: 2

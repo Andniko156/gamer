@@ -427,27 +427,36 @@ local function render(self,alpha)
             (u.flash and u.flash>0) and GOLD or NEUTRAL,"enemy_"..u.kind,tilt)
     end
     for _,p in ipairs(s.shots) do
-        paint(self,CX+mix(p.px,p.x,alpha)-self.view_x,CY+mix(p.py,p.y,alpha)-self.view_y,12,3,GOLD,nil,math.deg(math.atan2(p.vy,p.vx)))
+        paint(self,CX+mix(p.px,p.x,alpha)-self.view_x,CY+mix(p.py,p.y,alpha)-self.view_y,
+            36,12,NEUTRAL,"vfx_rivet",math.deg(math.atan2(p.vy,p.vx)),"arena","vfx")
     end
     local amount,radius=run.disks(s)
-    for i=1,amount do
-        local a=s.time*5+i*math.pi*2/amount
-        paint(self,CX+math.cos(a)*radius,CY+math.sin(a)*radius,19,19,TEAL,"item_5",math.deg(a))
+    if s.evolved[5] then
+        paint(self,CX,CY,108,108,NEUTRAL,"vfx_triple",math.deg(s.time*5)+30,"arena","vfx")
+    else
+        for i=1,amount do
+            local a=s.time*5+i*math.pi*2/amount
+            paint(self,CX+math.cos(a)*radius,CY+math.sin(a)*radius,28,28,
+                NEUTRAL,"vfx_saw",math.deg(a),"arena","vfx")
+        end
     end
     for _,e in ipairs(s.effects) do
         local x,y=CX+e.x-self.view_x,CY+e.y-self.view_y
-        if e.kind==2 then
-            paint(self,x,y,e.r,3,TEAL,nil,math.deg(e.angle))
-        elseif e.kind==3 then
-            for i=-2,2 do
-                local a=e.angle+i*0.25
-                paint(self,x+math.cos(a)*e.r*0.55,y+math.sin(a)*e.r*0.55,e.r*0.5,8,vmath.vector4(1,0.50,0.27,e.life*3),nil,math.deg(a))
+        local fade=vmath.vector4(1,1,1,math.min(1,e.life/0.16))
+        if e.kind==2 or e.kind==6 then
+            paint(self,x,y,math.max(12,e.r),e.kind==6 and 28 or 21,fade,
+                e.kind==6 and "vfx_storm" or "vfx_arc",math.deg(e.angle),"arena","vfx")
+        elseif e.kind==3 or e.kind==7 then
+            local count=e.kind==7 and 5 or 3
+            for i=1,count do
+                local a=e.angle+(i-(count+1)/2)*(e.kind==7 and 0.27 or 0.34)
+                paint(self,x+math.cos(a)*e.r*0.52,y+math.sin(a)*e.r*0.52,
+                    e.r*0.95,e.r*0.32,fade,e.kind==7 and "vfx_furnace" or "vfx_flame",
+                    math.deg(a),"arena","vfx")
             end
-        else
-            for i=1,8 do
-                local a=i*math.pi/4
-                paint(self,x+math.cos(a)*e.r,y+math.sin(a)*e.r,5,5,e.kind==6 and RED or WHITE,nil,45)
-            end
+        elseif e.kind==4 or e.kind==8 then
+            paint(self,x,y,e.r*2,e.r*2,fade,e.kind==8 and "vfx_pressure" or "vfx_steam",
+                nil,"arena","vfx")
         end
     end
     for i=self.used+1,#self.pool do gui.set_enabled(self.pool[i],false) end

@@ -3,6 +3,7 @@ fonts { name: "hud" font: "/game/cyrillic.font" }
 textures { name: "sprites" texture: "/art/sprites.atlas" }
 textures { name: "foundry" texture: "/art/arena_foundry.atlas" }
 textures { name: "channels" texture: "/art/arena_channels.atlas" }
+textures { name: "vfx" texture: "/art/vfx.atlas" }
 material: "/builtins/materials/gui.material"
 max_nodes: 1200
 adjust_reference: ADJUST_REFERENCE_LEGACY

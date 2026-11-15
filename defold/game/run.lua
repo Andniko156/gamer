@@ -231,7 +231,7 @@ local function attack(s,dt)
                 for _=1,evo and 7 or 2+floor(rank/2) do
                     if not target then break end
                     local dx,dy=target.x-x,target.y-y
-                    effect(s,2,(x+target.x)/2,(y+target.y)/2,sqrt(dx*dx+dy*dy),math.atan2(dy,dx))
+                    effect(s,evo and 6 or 2,(x+target.x)/2,(y+target.y)/2,sqrt(dx*dx+dy*dy),math.atan2(dy,dx))
                     damage(s,target,evo and 64 or 20+rank*4,k)
                     used[target]=true
                     x,y=target.x,target.y
@@ -261,7 +261,7 @@ local function attack(s,dt)
                             end
                         end
                     end
-                    effect(s,k,s.x,s.y,radius,aim)
+                    effect(s,evo and k+4 or k,s.x,s.y,radius,aim)
                     recharge=evo and 0.64 or 1.07-rank*0.026
                 end
             elseif k==5 then
