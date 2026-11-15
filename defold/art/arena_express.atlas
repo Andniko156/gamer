@@ -1,0 +1,5 @@
+images { image: "/art/arena_express_forest.png" }
+images { image: "/art/arena_express_bridge.png" }
+images { image: "/art/arena_express_city.png" }
+margin: 2
+extrude_borders: 2
