@@ -1,9 +1,12 @@
 script: "/game/arena.gui_script"
 fonts { name: "hud" font: "/game/cyrillic.font" }
 textures { name: "sprites" texture: "/art/sprites.atlas" }
+textures { name: "foundry" texture: "/art/arena_foundry.atlas" }
+textures { name: "channels" texture: "/art/arena_channels.atlas" }
 material: "/builtins/materials/gui.material"
 max_nodes: 1200
 adjust_reference: ADJUST_REFERENCE_LEGACY
+layers { name: "floor" }
 layers { name: "arena" }
 layers { name: "danger" }
 layers { name: "actor" }

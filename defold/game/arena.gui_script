@@ -10,12 +10,7 @@ local PANEL = vmath.vector4(0.16,0.13,0.18,1)
 local TEAL = vmath.vector4(0.50,0.88,0.77,1)
 local WHITE = vmath.vector4(0.96,0.89,0.81,1)
 local RED = vmath.vector4(0.92,0.48,0.39,1)
-local FLOOR_LINE = vmath.vector4(0.21,0.17,0.21,1)
-local BRASS_PLATE = vmath.vector4(0.18,0.14,0.14,1)
-local BRASS_DARK = vmath.vector4(0.14,0.11,0.13,1)
-local CHANNEL_PLATE = vmath.vector4(0.10,0.18,0.19,1)
-local CHANNEL_DARK = vmath.vector4(0.09,0.14,0.17,1)
-local RIVET = vmath.vector4(0.45,0.32,0.24,1)
+local DORMANT = vmath.vector4(0.24,0.28,0.27,1)
 local SHADOW = vmath.vector4(0.04,0.03,0.05,0.45)
 local NEUTRAL = vmath.vector4(1,1,1,1)
 
@@ -221,7 +216,7 @@ end
 function init(self)
     msg.post(".","acquire_input_focus")
     self.profile=sys.load(sys.get_save_file("latunnaya_noch","profile"))
-    self.menu,self.buttons,self.keys,self.pool,self.pool_skin,self.floor={},{},{},{},{},{}
+    self.menu,self.buttons,self.keys,self.pool,self.pool_skin={},{},{},{},{}
     self.hero,self.doctrine,self.arena,self.remainder,self.diagnostics=1,1,1,0,false
     window.set_listener(function(_,event)
         if event==window.WINDOW_EVENT_FOCUS_LOST then
@@ -230,8 +225,6 @@ function init(self)
         end
     end)
     box(CX,HEIGHT/2,WIDTH,HEIGHT,INK)
-    for i=1,16 do self.floor[i]=box(CX,i*55,WIDTH+55,1,FLOOR_LINE) end
-    for i=17,26 do self.floor[i]=box((i-17)*55,HEIGHT/2,1,HEIGHT+55,FLOOR_LINE) end
     self.actor=sprite(CX,CY,56,56,"agata_0")
     gui.set_layer(self.actor,"actor")
     self.hud=box(CX,720,412,76,INK)
@@ -275,8 +268,8 @@ local function pooled(self,index)
     return n
 end
 
-local function paint(self,x,y,w,h,color,id,angle,layer)
-    if x < -260 or y < -260 or x > WIDTH+260 or y > HEIGHT+260 then return end
+local function paint(self,x,y,w,h,color,id,angle,layer,texture)
+    if x+w*0.5 < -20 or y+h*0.5 < -20 or x-w*0.5 > WIDTH+20 or y-h*0.5 > HEIGHT+20 then return end
     self.used=self.used+1
     local node=pooled(self,self.used)
     gui.set_layer(node,layer or "arena")
@@ -286,10 +279,12 @@ local function paint(self,x,y,w,h,color,id,angle,layer)
     gui.set_rotation(node,vmath.vector3(0,0,angle or 0))
     gui.set_color(node,color)
     local skin=id or "white"
-    if self.pool_skin[self.used]~=skin then
-        gui.set_texture(node,"sprites")
+    local atlas=texture or "sprites"
+    local key=atlas..":"..skin
+    if self.pool_skin[self.used]~=key then
+        gui.set_texture(node,atlas)
         gui.play_flipbook(node,skin)
-        self.pool_skin[self.used]=skin
+        self.pool_skin[self.used]=key
     end
 end
 
@@ -313,27 +308,15 @@ local function render(self,alpha)
         for _,n in ipairs(self.pool) do gui.set_enabled(n,false) end
         return
     end
-    for i,n in ipairs(self.floor) do
-        if i<=16 then gui.set_position(n,vmath.vector3(CX,(i-1)*55-self.view_y%55,0))
-        else gui.set_position(n,vmath.vector3((i-17)*55-self.view_x%55,HEIGHT/2,0)) end
-    end
-    local step=96
+    local step=384
     local bx=math.floor((self.view_x-CX)/step)
     local by=math.floor((self.view_y-CY)/step)
-    for ix=bx,bx+6 do for iy=by,by+10 do
-        local x,y=CX+ix*step-self.view_x,CY+iy*step-self.view_y
-        if x>-55 and x<WIDTH+55 and y>-55 and y<HEIGHT+55 then
-            local even=(ix+iy)%2==0
-            local plate=s.arena==2 and (even and CHANNEL_PLATE or CHANNEL_DARK)
-                or (even and BRASS_PLATE or BRASS_DARK)
-            paint(self,x,y,92,92,plate)
-            paint(self,x-38,y-38,4,4,RIVET)
-            paint(self,x+38,y+38,4,4,RIVET)
-            if (ix*7+iy*11)%5==0 then
-                for line=-1,1 do
-                    paint(self,x,y+line*8,40,3,s.arena==2 and TEAL or RIVET)
-                end
-            end
+    local atlas=s.arena==2 and "channels" or "foundry"
+    local skin=s.arena==2 and "arena_channels" or "arena_foundry"
+    for ix=bx,bx+2 do for iy=by,by+3 do
+        local x,y=CX+(ix+0.5)*step-self.view_x,CY+(iy+0.5)*step-self.view_y
+        if x>-step*0.5 and x<WIDTH+step*0.5 and y>-step*0.5 and y<HEIGHT+step*0.5 then
+            paint(self,x,y,step,step,NEUTRAL,skin,nil,"floor",atlas)
         end
     end end
     if s.arena==2 then
@@ -345,7 +328,7 @@ local function render(self,alpha)
             local state=run.vent_state(s,wx,wy)
             local x,y=CX+wx-self.view_x,CY+wy-self.view_y
             if x>-60 and x<WIDTH+60 and y>-60 and y<HEIGHT+60 then
-                local color=state=="active" and RED or state=="warning" and GOLD or FLOOR_LINE
+                local color=state=="active" and RED or state=="warning" and GOLD or DORMANT
                 paint(self,x,y,14,14,color,"item_17")
                 for j=1,8 do
                     local a=j*math.pi/4
