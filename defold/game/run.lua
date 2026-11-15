@@ -35,12 +35,12 @@ function M.new(hero, seed, doctrine, arena)
         x=0,y=0,px=0,py=0, dir_x=1,dir_y=0, wave=1, level=1,xp=0,need=16,kills=0,
         enemies={},shots={},loot={},effects={},weapon={0,0,0,0,0}, artifact={0,0,0,0,0,0},
         evolved={},cooldown={0,0,0,0,0},damage={}, banned={}, rerolls=2, banishes=1,
-        next_spawn=2.2,elite_index=1,event_index=1, invincible=0, mode="run",
+        next_spawn=1.1,elite_index=1,event_index=1, invincible=0, mode="run",
         arena=arena or 1, crates={}, next_crate=d.crates.first, frozen_until=0,
     }
     s.weapon[hero]=1
     local angle=random(s)*tau
-    for i=1,10 do ring_spawn(s,1,108+(i%4)*24,angle+i*0.55) end
+    for i=1,22 do ring_spawn(s,1,155+(i%5)*23,angle+i*0.46) end
     return s
 end
 
@@ -118,7 +118,7 @@ local function waves(s)
     local minute=s.time%60
     local rest=minute>=49 and minute<56
     s.next_spawn=s.time+w[3]*(rest and 1.35 or 1)
-    local available=min(rest and math.ceil(w[2]/2) or w[2],42+(s.wave-1)*8-#s.enemies)
+    local available=max(0,min(rest and math.ceil(w[2]/2) or w[2],64+(s.wave-1)*8-#s.enemies))
     local a=random(s)*tau
     local rams,mortars=0,0
     for _,u in ipairs(s.enemies) do

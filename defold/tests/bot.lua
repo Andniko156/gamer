@@ -2,7 +2,7 @@ local run = require "game.run"
 
 local function simulate(hero, seed, arena, observe)
     local s = run.new(hero, seed, nil, arena)
-    assert(#s.enemies == 10)
+    assert(#s.enemies == 22)
     for _=1,36050 do
         if s.mode=="ended" then return s end
         if s.mode=="level" then
