@@ -38,16 +38,27 @@ local function sprite(x,y,w,h,id)
     return n
 end
 
+local function skin(x,y,w,h,id)
+    local n=box(x,y,w,h,NEUTRAL)
+    gui.set_texture(n,"ui")
+    gui.play_flipbook(n,id)
+    gui.set_size_mode(n,gui.SIZE_MODE_MANUAL)
+    gui.set_size(n,vmath.vector3(w,h,0))
+    gui.set_slice9(n,vmath.vector4(16,14,16,14))
+    return n
+end
+
 local function remember(self,n)
     gui.set_layer(n,"menu")
     self.menu[#self.menu+1]=n
     return n
 end
 
-local function control(self,x,y,w,h,name,action)
-    local hit=remember(self,box(x,y,w,h,PANEL))
-    remember(self,label(x,y,name,17,GOLD))
+local function control(self,x,y,w,h,name,action,primary)
+    local hit=remember(self,skin(x,y,w,h,primary and "ui_primary" or "ui_secondary"))
+    if name~="" then remember(self,label(x,y,name,17,primary and INK or WHITE)) end
     self.buttons[#self.buttons+1]={hit=hit,action=action}
+    return hit
 end
 
 local function clear_menu(self)
@@ -65,7 +76,28 @@ local function allowed(self,i)
         or (i==4 and (p.kills or 0)>=100) or (i==5 and p.won)
 end
 
-local show_hangar, show_level, show_pause, show_intro, finish, start
+local show_hangar, show_level, show_pause, show_build, show_intro, finish, start
+
+local function menu_floor(self)
+    local floor=box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0.60,0.60,0.60,1))
+    gui.set_texture(floor,"foundry")
+    gui.play_flipbook(floor,"arena_foundry")
+    gui.set_layer(floor,"floor")
+    self.menu[#self.menu+1]=floor
+end
+
+local function item_info(id)
+    if id<=5 then
+        return data.weapon_effects[id],"Пара: "..data.artifacts[id].." → "..data.evolutions[id]
+    elseif id<=11 then
+        local index=id-5
+        if index<=5 then
+            return data.artifact_effects[index],"Пара: "..data.weapons[index].." → "..data.evolutions[index]
+        end
+        return data.artifact_effects[index],"Без эволюционной пары"
+    end
+    return "Восстановление 30% здоровья.","Без эволюционной пары"
+end
 
 local function actor(self,name)
     if self.actor_anim~=name then
@@ -79,38 +111,41 @@ show_hangar=function(self)
     self.mode="hangar"
     self.run=nil
     gui.set_enabled(self.actor,false)
-    remember(self,box(CX,CY,412,615,INK))
-    remember(self,label(CX,675,"ЛАТУННАЯ НОЧЬ",33,GOLD))
-    remember(self,label(CX,630,"Литейная № 7",18,TEAL))
+    menu_floor(self)
+    remember(self,skin(CX,384,416,738,"ui_panel"))
+    remember(self,skin(CX,683,390,76,"ui_panel"))
+    remember(self,label(CX,686,"ЛАТУННАЯ НОЧЬ",28,GOLD))
+    remember(self,sprite(CX,574,96,96,data.heroes[self.hero][2].."_0"))
     for i,h in ipairs(data.heroes) do
         local index=i
         local x=64+(i-1)*76
-        local hit=remember(self,box(x,542,64,72,i==self.hero and vmath.vector4(0.38,0.26,0.25,1) or PANEL))
-        remember(self,sprite(x,545,52,52,h[2].."_0"))
-        if not allowed(self,i) then remember(self,label(x,507,"Закрыт",12,WHITE)) end
+        local hit=remember(self,skin(x,478,64,66,i==self.hero and "ui_primary" or "ui_secondary"))
+        remember(self,sprite(x,479,50,50,h[2].."_0"))
+        if not allowed(self,i) then remember(self,label(x,450,"Закрыт",11,WHITE)) end
         self.buttons[#self.buttons+1]={hit=hit,action=function() self.hero=index;show_hangar(self) end}
     end
-    remember(self,label(CX,459,data.heroes[self.hero][1],24,WHITE))
-    remember(self,label(CX,421,data.weapons[self.hero],17,TEAL))
+    remember(self,label(CX,421,data.heroes[self.hero][1],21,WHITE))
+    remember(self,label(CX,394,"Оружие · "..data.weapons[self.hero],15,TEAL))
     local gates={"","Открытие · выжить 45 секунд","Открытие · достичь 5 уровня","Открытие · победить 100 машин","Открытие · победить Смотрителя"}
-    if not allowed(self,self.hero) then remember(self,label(CX,388,gates[self.hero],15,WHITE)) end
+    if not allowed(self,self.hero) then remember(self,label(CX,368,gates[self.hero],13,WHITE)) end
     local names={"Полевой устав","Штурмовой устав","Караульный устав"}
     local notes={"+16 к дальности сбора","+12% урона, +10% входящего","−14% входящего, −6% скорости"}
-    control(self,CX,339,340,48,names[self.doctrine],function()
+    control(self,CX,338,352,48,"Устав: "..names[self.doctrine],function()
         self.doctrine=self.doctrine%3+1;show_hangar(self)
     end)
-    remember(self,label(CX,303,notes[self.doctrine],14,WHITE))
-    control(self,CX,260,340,48,self.arena==1 and "Арена · Литейная" or "Арена · Паровые каналы",function()
+    remember(self,label(CX,303,notes[self.doctrine],13,WHITE))
+    control(self,CX,266,352,48,self.arena==1 and "Арена: Литейная № 7" or "Арена: Паровые каналы",function()
         self.arena=3-self.arena;show_hangar(self)
     end)
-    if allowed(self,self.hero) then control(self,CX,188,340,58,"Начать вылазку",function() start(self) end) end
-    remember(self,label(CX,121,"Веди палец по арене. Оружие стреляет само.",15,WHITE))
-    control(self,CX,83,200,32,"Как играть",function() show_intro(self,1) end)
+    if allowed(self,self.hero) then control(self,CX,187,352,60,"НАЧАТЬ ВЫЛАЗКУ",function() start(self) end,true) end
+    remember(self,label(CX,130,"Веди палец по арене · атака автоматически",12,WHITE))
+    control(self,CX,80,230,44,"КАК ИГРАТЬ",function() show_intro(self,1) end)
 end
 
 show_intro=function(self,page)
     clear_menu(self)
     self.mode="intro"
+    menu_floor(self)
     local chapters={
         {"01 · Двигайся","Веди палец по арене — герой идёт.","На компьютере · WASD или стрелки.",
             "Оружие атакует автоматически."},
@@ -120,14 +155,14 @@ show_intro=function(self,page)
             "Эволюция появится из шкатулки элиты."},
     }
     local chapter=chapters[page]
-    remember(self,box(CX,CY,396,466,INK))
+    remember(self,skin(CX,CY,400,488,"ui_panel"))
     remember(self,label(CX,534,chapter[1],25,GOLD))
     for i=2,4 do remember(self,label(CX,465-(i-2)*50,chapter[i],15,WHITE)) end
     remember(self,label(CX,291,page.." / 3",14,TEAL))
     control(self,CX,224,320,52,page==3 and "В ангар" or "Далее",function()
         if page<3 then show_intro(self,page+1)
         else self.profile.tutorial_seen=true;save(self);show_hangar(self) end
-    end)
+    end,true)
     if page<3 then control(self,CX,159,320,38,"Пропустить",function()
         self.profile.tutorial_seen=true;save(self);show_hangar(self)
     end) end
@@ -148,24 +183,31 @@ show_level=function(self)
     self.mode="level"
     self.drag=nil
     local s=self.run
-    remember(self,box(CX,CY,400,368,INK))
-    remember(self,label(CX,509,self.banish and "Исключить предмет" or "Выбери усиление",25,GOLD))
+    remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0.02,0.02,0.03,0.52)))
+    remember(self,skin(CX,370,410,450,"ui_panel"))
+    remember(self,label(CX,550,self.banish and "ИСКЛЮЧИТЬ ПРЕДМЕТ" or "ВЫБЕРИ УСИЛЕНИЕ",22,GOLD))
     for i,id in ipairs(s.options) do
         local item=id
         local rank=id<=5 and s.weapon[id] or id<=11 and s.artifact[id-5] or nil
         local title=run.item_name(id)..(rank and (" · "..(rank+1).."/"..(id<=5 and 6 or 5)) or "")
-        control(self,CX,456-i*56,350,48,title,function()
+        local y=486-(i-1)*100
+        local hit=control(self,CX,y,366,92,"",function()
             if run.choose(s,item,self.banish) then
                 if self.banish then self.banish=false;show_level(self)
                 else clear_menu(self);self.mode="run" end
             end
         end)
-        remember(self,sprite(57,456-i*56,24,24,"item_"..(id==12 and 13 or id)))
+        if rank and rank>0 then gui.set_color(hit,vmath.vector4(0.77,1,0.95,1)) end
+        remember(self,sprite(67,y+7,42,42,"item_"..(id==12 and 13 or id)))
+        remember(self,label(252,y+25,title,16,GOLD))
+        local description,pair=item_info(id)
+        remember(self,label(250,y-1,description,12,WHITE))
+        remember(self,label(250,y-27,pair,11,TEAL))
     end
-    control(self,123,224,165,44,"Сменить · "..s.rerolls,function()
+    control(self,123,176,174,48,"Сменить · "..s.rerolls,function()
         if run.reroll(s) then self.banish=false;show_level(self) end
     end)
-    control(self,307,224,165,44,self.banish and "Отмена" or "Исключить · "..s.banishes,function()
+    control(self,307,176,174,48,self.banish and "Отмена" or "Исключить · "..s.banishes,function()
         if s.banishes>0 then self.banish=not self.banish;show_level(self) end
     end)
 end
@@ -173,18 +215,60 @@ end
 show_pause=function(self)
     clear_menu(self)
     self.mode,self.drag="pause",nil
-    remember(self,box(CX,CY,380,336,INK))
-    remember(self,label(CX,481,"Пауза",26,GOLD))
-    control(self,CX,414,320,48,"Продолжить",function() clear_menu(self);self.mode="run" end)
-    control(self,CX,348,320,48,self.diagnostics and "Диагностика: вкл" or "Диагностика: выкл",function()
+    remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0.02,0.02,0.03,0.50)))
+    remember(self,skin(CX,CY,390,440,"ui_panel"))
+    remember(self,label(CX,526,"Пауза",26,GOLD))
+    control(self,CX,455,320,52,"Продолжить",function() clear_menu(self);self.mode="run" end,true)
+    control(self,CX,389,320,48,"Снаряжение",function() show_build(self) end)
+    control(self,CX,326,320,48,self.diagnostics and "Диагностика: вкл" or "Диагностика: выкл",function()
         self.diagnostics=not self.diagnostics;show_pause(self)
     end)
     if self.diagnostics then
         local p=self.perf
-        remember(self,label(CX,306,string.format("FPS %d · минимум %d",p.fps,p.lowest==math.huge and 0 or p.lowest),14,TEAL))
-        remember(self,label(CX,281,"Врагов максимум "..p.peak_enemies.." · узлов "..p.peak_nodes,13,WHITE))
+        remember(self,label(CX,287,string.format("FPS %d · минимум %d",p.fps,p.lowest==math.huge and 0 or p.lowest),12,TEAL))
+        remember(self,label(CX,265,"Врагов "..p.peak_enemies.." · узлов "..p.peak_nodes,12,WHITE))
     end
-    control(self,CX,241,320,48,"Завершить вылазку",function() finish(self) end)
+    control(self,CX,215,320,48,"Завершить вылазку",function() finish(self) end)
+end
+
+show_build=function(self,selected)
+    clear_menu(self)
+    self.mode,self.drag="build",nil
+    local s=self.run
+    local current=selected or s.hero
+    remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0.02,0.02,0.03,0.58)))
+    remember(self,skin(CX,384,410,668,"ui_panel"))
+    remember(self,label(CX,675,"СНАРЯЖЕНИЕ",24,GOLD))
+    remember(self,label(113,628,"ОРУЖИЕ · 4",13,GOLD))
+    remember(self,label(320,628,"АРТЕФАКТЫ · 4",13,TEAL))
+    local weapons,artifacts={},{}
+    for id,rank in ipairs(s.weapon) do if rank>0 then weapons[#weapons+1]=id end end
+    for index,rank in ipairs(s.artifact) do if rank>0 then artifacts[#artifacts+1]=index+5 end end
+    for column,items in ipairs({weapons,artifacts}) do
+        for row=1,4 do
+            local id=items[row]
+            local x=column==1 and 111 or 321
+            local y=590-(row-1)*63
+            if id then
+                local item=id
+                local rank=id<=5 and s.weapon[id] or s.artifact[id-5]
+                local hit=control(self,x,y,192,54,"",function() show_build(self,item) end)
+                if item==current then gui.set_color(hit,vmath.vector4(0.82,1,0.94,1)) end
+                remember(self,sprite(x-77,y,28,28,"item_"..id))
+                remember(self,label(x+15,y+8,data.weapons[id] or data.artifacts[id-5],11,WHITE))
+                remember(self,label(x+15,y-13,rank.."/"..(id<=5 and 6 or 5),11,TEAL))
+            else
+                remember(self,skin(x,y,192,54,"ui_panel"))
+                remember(self,label(x,y,"—",15,DORMANT))
+            end
+        end
+    end
+    remember(self,skin(CX,246,382,128,"ui_panel"))
+    remember(self,label(CX,278,run.item_name(current),18,GOLD))
+    local description,pair=item_info(current)
+    remember(self,label(CX,246,description,12,WHITE))
+    remember(self,label(CX,214,pair,11,TEAL))
+    control(self,CX,124,300,52,"Назад к паузе",function() show_pause(self) end,true)
 end
 
 local function clock(t)
@@ -199,7 +283,8 @@ finish=function(self)
     p.kills=(p.kills or 0)+s.kills
     p.won=p.won or s.won or false
     save(self)
-    remember(self,box(CX,CY,395,420,INK))
+    remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0.02,0.02,0.03,0.52)))
+    remember(self,skin(CX,CY,404,478,"ui_panel"))
     remember(self,label(CX,535,s.won and "Литейная выстояла" or "Вылазка окончена",25,GOLD))
     remember(self,label(CX,488,clock(s.time).."  ·  Уровень "..s.level.."  ·  Машин "..s.kills,16,TEAL))
     local ranking={}
@@ -207,9 +292,12 @@ finish=function(self)
     table.sort(ranking,function(a,b) return a[2]>b[2] end)
     for i=1,math.min(4,#ranking) do
         local entry=ranking[i]
-        remember(self,label(CX,464-i*30,data.weapons[entry[1]].." · "..math.floor(entry[2]).." урона",14,WHITE))
+        local y=456-i*37
+        remember(self,skin(CX,y,350,34,"ui_secondary"))
+        remember(self,sprite(66,y,26,26,"item_"..entry[1]))
+        remember(self,label(239,y,data.weapons[entry[1]].." · "..math.floor(entry[2]).." урона",13,WHITE))
     end
-    control(self,CX,272,320,48,"Повторить",function() start(self) end)
+    control(self,CX,272,320,52,"Повторить",function() start(self) end,true)
     control(self,CX,210,320,48,"В ангар",function() show_hangar(self) end)
 end
 
@@ -227,14 +315,16 @@ function init(self)
     box(CX,HEIGHT/2,WIDTH,HEIGHT,INK)
     self.actor=sprite(CX,CY,56,56,"agata_0")
     gui.set_layer(self.actor,"actor")
-    self.hud=box(CX,720,412,76,INK)
+    self.hud=skin(CX,720,420,86,"ui_panel")
     self.time_text=label(CX-18,744,"",17,GOLD)
+    self.hp_back=skin(CX,719,380,17,"ui_panel")
     self.hp=box(CX,719,366,7,RED)
+    self.xp_back=skin(CX,707,380,17,"ui_panel")
     self.xp=box(CX,707,366,6,TEAL)
     self.more=label(CX,690,"",12,WHITE)
     self.banner=label(CX,657,"",16,GOLD)
     self.perf_text=label(CX,675,"",11,TEAL)
-    self.pause_hit=box(397,743,48,46,PANEL)
+    self.pause_hit=skin(397,743,48,46,"ui_secondary")
     self.pause_label=label(397,743,"II",18,GOLD)
     self.stick=box(0,0,66,66,vmath.vector4(0.36,0.29,0.31,0.55))
     self.thumb=box(0,0,20,20,vmath.vector4(0.89,0.68,0.46,0.75))
@@ -242,14 +332,14 @@ function init(self)
     gui.set_layer(self.thumb,"overlay")
     gui.set_enabled(self.stick,false)
     gui.set_enabled(self.thumb,false)
-    self.hud_nodes={self.hud,self.time_text,self.hp,self.xp,self.more,self.banner,self.perf_text,self.pause_hit,self.pause_label}
+    self.hud_nodes={self.hud,self.time_text,self.hp_back,self.hp,self.xp_back,self.xp,self.more,self.banner,self.perf_text,self.pause_hit,self.pause_label}
     self.inventory={}
-    self.hud_nodes[#self.hud_nodes+1]=box(CX,62,400,78,INK)
+    self.hud_nodes[#self.hud_nodes+1]=skin(CX,62,410,82,"ui_panel")
     self.hud_nodes[#self.hud_nodes+1]=label(120,89,"ОРУЖИЕ · 4",12,GOLD)
     self.hud_nodes[#self.hud_nodes+1]=label(312,89,"АРТЕФАКТЫ · 4",12,TEAL)
     for i=1,8 do
         local x=48+(i-1)*48
-        local slot={background=box(x,60,40,34,PANEL),icon=sprite(x,62,26,26,"white"),rank=label(x,36,"—",11,WHITE)}
+        local slot={background=skin(x,60,40,34,"ui_secondary"),icon=sprite(x,62,26,26,"white"),rank=label(x,36,"—",11,WHITE)}
         self.inventory[i]=slot
         for _,n in pairs(slot) do self.hud_nodes[#self.hud_nodes+1]=n end
     end
@@ -343,8 +433,9 @@ local function render(self,alpha)
     for _,l in ipairs(s.loot) do
         local x,y=CX+l.x-self.view_x,CY+l.y-self.view_y
         if l.kind=="xp" then
-            local color=l.xp>=10 and RED or (l.xp>=4 and GOLD or TEAL)
-            paint(self,x,y,l.xp>=4 and 9 or 6,l.xp>=4 and 9 or 6,color,nil,45)
+            local tier=l.xp>=10 and "xp_large" or l.xp>=4 and "xp_medium" or "xp_small"
+            local size=l.xp>=10 and 26 or l.xp>=4 and 20 or 16
+            paint(self,x,y+math.sin(s.time*4+l.x*0.09)*1.4,size,size,NEUTRAL,tier,nil,"arena","ui")
         else
             paint(self,x,y,27,27,l.evolves and TEAL or NEUTRAL,l.kind=="chest" and "item_12" or "item_13")
         end
@@ -442,6 +533,8 @@ local function render(self,alpha)
     end
     for _,e in ipairs(s.effects) do
         local x,y=CX+e.x-self.view_x,CY+e.y-self.view_y
+        local total=e.total or 0.22
+        local age=math.max(0,total-e.life)
         local fade=vmath.vector4(1,1,1,math.min(1,e.life/0.16))
         if e.kind==2 or e.kind==6 then
             paint(self,x,y,math.max(12,e.r),e.kind==6 and 28 or 21,fade,
@@ -449,14 +542,47 @@ local function render(self,alpha)
         elseif e.kind==3 or e.kind==7 then
             local count=e.kind==7 and 5 or 3
             for i=1,count do
-                local a=e.angle+(i-(count+1)/2)*(e.kind==7 and 0.27 or 0.34)
-                paint(self,x+math.cos(a)*e.r*0.52,y+math.sin(a)*e.r*0.52,
-                    e.r*0.95,e.r*0.32,fade,e.kind==7 and "vfx_furnace" or "vfx_flame",
-                    math.deg(a),"arena","vfx")
+                local delay=(i-1)*0.028
+                local t=math.max(0,age-delay)
+                if t>0 then
+                    local grow=math.min(1,t/0.13)
+                    local a=e.angle+(i-(count+1)/2)*(e.kind==7 and 0.26 or 0.33)
+                        +math.sin(s.time*17+i*2.4)*0.045
+                    local reach=e.r*(0.22+0.73*grow)
+                    local opacity=math.min(1,t/0.075)*math.min(1,e.life/0.19)
+                    paint(self,x+math.cos(a)*reach*0.52,y+math.sin(a)*reach*0.52,
+                        reach,e.r*(0.10+0.23*grow),vmath.vector4(1,1,1,opacity),
+                        e.kind==7 and "vfx_furnace" or "vfx_flame",math.deg(a),"arena","vfx")
+                end
+            end
+            for i=1,3 do
+                local t=math.max(0,age-i*0.045)
+                if t>0 and e.life>0.05 then
+                    local a=e.angle+(i-2)*0.30+math.sin(s.time*9+i)*0.12
+                    local reach=e.r*math.min(0.96,t/0.24)
+                    paint(self,x+math.cos(a)*reach,y+math.sin(a)*reach,
+                        3+i%2*2,3+i%2*2,vmath.vector4(1,0.54,0.19,math.min(0.8,e.life*2)),nil,nil,"arena")
+                end
             end
         elseif e.kind==4 or e.kind==8 then
-            paint(self,x,y,e.r*2,e.r*2,fade,e.kind==8 and "vfx_pressure" or "vfx_steam",
-                nil,"arena","vfx")
+            local expand=math.min(1,age/0.24)
+            local size=e.r*(0.56+1.44*expand)
+            local opacity=math.min(1,age/0.09)*math.min(1,e.life/0.24)
+            paint(self,x,y,size,size,vmath.vector4(1,1,1,opacity),
+                e.kind==8 and "vfx_pressure" or "vfx_steam",nil,"arena","vfx")
+            for i=1,8 do
+                local a=i*math.pi/4+math.sin(s.time*7+i*3)*0.10
+                local distance=e.r*(0.20+0.84*expand)
+                local puff=4+8*expand
+                paint(self,x+math.cos(a)*distance,y+math.sin(a)*distance+age*13,
+                    puff,puff,vmath.vector4(0.88,0.94,0.90,opacity*0.38),nil,nil,"arena")
+            end
+        elseif e.kind==9 then
+            for i=1,12 do
+                local a=i*math.pi/6
+                paint(self,x+math.cos(a)*e.r,y+math.sin(a)*e.r,7,4,
+                    vmath.vector4(1,0.42,0.28,fade.w),nil,math.deg(a),"danger")
+            end
         end
     end
     for i=self.used+1,#self.pool do gui.set_enabled(self.pool[i],false) end
@@ -544,6 +670,7 @@ function on_input(self,id,action)
     if id==PAUSE and action.pressed then
         if self.mode=="run" then show_pause(self)
         elseif self.mode=="pause" then clear_menu(self);self.mode="run" end
+        if self.mode=="build" then show_pause(self) end
         return true
     end
     if action.x and self.drag then self.drag.x,self.drag.y=action.x,action.y end

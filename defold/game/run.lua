@@ -197,7 +197,9 @@ end
 
 local function effect(s,k,x,y,r,angle)
     if #s.effects<25 then
-        s.effects[#s.effects+1]={kind=k,x=x,y=y,r=r,angle=angle or 0,life=0.22}
+        local duration=(k==3 or k==7) and 0.46 or (k==4 or k==8) and 0.50 or 0.22
+        s.effects[#s.effects+1]={kind=k,x=x,y=y,r=r,angle=angle or 0,
+            life=duration,total=duration}
     end
 end
 
@@ -347,7 +349,7 @@ local function enemy_move(s,u,dt)
         local x,y=u.target_x,u.target_y
         local radius=u.attack_radius
         if (s.x-x)^2+(s.y-y)^2<radius*radius then hurt(s,u.kind==5 and 19 or 36) end
-        effect(s,6,x,y,radius)
+        effect(s,9,x,y,radius)
         u.recover_until=s.time+(u.kind==5 and d.attacks.mortar.recovery or d.attacks.boss.recovery)
     elseif u.interval<=s.time and distance<(u.kind==4 and 126 or 253) then
         local config=u.kind==4 and d.attacks.ram or u.kind==5 and d.attacks.mortar or d.attacks.boss
