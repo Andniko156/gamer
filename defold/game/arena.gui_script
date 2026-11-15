@@ -55,7 +55,8 @@ local function remember(self,n)
 end
 
 local function control(self,x,y,w,h,name,action,primary)
-    local hit=remember(self,skin(x,y,w,h,primary and "ui_primary" or "ui_secondary"))
+    local hit=remember(self,primary and skin(x,y,w,h,"ui_primary") or box(x,y,w,h,PANEL))
+    if not primary then remember(self,box(x,y+h*0.5-2,w-8,2,vmath.vector4(0.44,0.34,0.22,1))) end
     if name~="" then remember(self,label(x,y,name,17,primary and INK or WHITE)) end
     self.buttons[#self.buttons+1]={hit=hit,action=action}
     return hit
@@ -119,7 +120,7 @@ show_hangar=function(self)
     for i,h in ipairs(data.heroes) do
         local index=i
         local x=64+(i-1)*76
-        local hit=remember(self,skin(x,478,64,66,i==self.hero and "ui_primary" or "ui_secondary"))
+        local hit=remember(self,i==self.hero and skin(x,478,64,66,"ui_primary") or box(x,478,64,66,PANEL))
         remember(self,sprite(x,479,50,50,h[2].."_0"))
         if not allowed(self,i) then remember(self,label(x,450,"Закрыт",11,WHITE)) end
         self.buttons[#self.buttons+1]={hit=hit,action=function() self.hero=index;show_hangar(self) end}
@@ -293,7 +294,7 @@ finish=function(self)
     for i=1,math.min(4,#ranking) do
         local entry=ranking[i]
         local y=456-i*37
-        remember(self,skin(CX,y,350,34,"ui_secondary"))
+        remember(self,box(CX,y,350,34,PANEL))
         remember(self,sprite(66,y,26,26,"item_"..entry[1]))
         remember(self,label(239,y,data.weapons[entry[1]].." · "..math.floor(entry[2]).." урона",13,WHITE))
     end
@@ -315,16 +316,16 @@ function init(self)
     box(CX,HEIGHT/2,WIDTH,HEIGHT,INK)
     self.actor=sprite(CX,CY,56,56,"agata_0")
     gui.set_layer(self.actor,"actor")
-    self.hud=skin(CX,720,420,86,"ui_panel")
+    self.hud=box(CX,720,420,86,INK)
     self.time_text=label(CX-18,744,"",17,GOLD)
-    self.hp_back=skin(CX,719,380,17,"ui_panel")
+    self.hp_back=box(CX,719,380,12,PANEL)
     self.hp=box(CX,719,366,7,RED)
-    self.xp_back=skin(CX,707,380,17,"ui_panel")
+    self.xp_back=box(CX,707,380,11,PANEL)
     self.xp=box(CX,707,366,6,TEAL)
     self.more=label(CX,690,"",12,WHITE)
-    self.banner=label(CX,657,"",16,GOLD)
-    self.perf_text=label(CX,675,"",11,TEAL)
-    self.pause_hit=skin(397,743,48,46,"ui_secondary")
+    self.banner=label(CX,602,"",16,GOLD)
+    self.perf_text=label(CX,580,"",11,TEAL)
+    self.pause_hit=box(397,743,48,46,PANEL)
     self.pause_label=label(397,743,"II",18,GOLD)
     self.stick=box(0,0,66,66,vmath.vector4(0.36,0.29,0.31,0.55))
     self.thumb=box(0,0,20,20,vmath.vector4(0.89,0.68,0.46,0.75))
@@ -334,12 +335,14 @@ function init(self)
     gui.set_enabled(self.thumb,false)
     self.hud_nodes={self.hud,self.time_text,self.hp_back,self.hp,self.xp_back,self.xp,self.more,self.banner,self.perf_text,self.pause_hit,self.pause_label}
     self.inventory={}
-    self.hud_nodes[#self.hud_nodes+1]=skin(CX,62,410,82,"ui_panel")
-    self.hud_nodes[#self.hud_nodes+1]=label(120,89,"ОРУЖИЕ · 4",12,GOLD)
-    self.hud_nodes[#self.hud_nodes+1]=label(312,89,"АРТЕФАКТЫ · 4",12,TEAL)
+    self.hud_nodes[#self.hud_nodes+1]=box(CX,647,410,62,vmath.vector4(0.09,0.09,0.11,0.86))
+    self.weapon_count=label(116,664,"ОРУЖИЕ 1/4",10,GOLD)
+    self.artifact_count=label(320,664,"АРТЕФАКТЫ 0/4",10,TEAL)
+    self.hud_nodes[#self.hud_nodes+1]=self.weapon_count
+    self.hud_nodes[#self.hud_nodes+1]=self.artifact_count
     for i=1,8 do
         local x=48+(i-1)*48
-        local slot={background=skin(x,60,40,34,"ui_secondary"),icon=sprite(x,62,26,26,"white"),rank=label(x,36,"—",11,WHITE)}
+        local slot={background=box(x,641,32,27,PANEL),icon=sprite(x,641,21,21,"white"),rank=label(x,620,"—",9,WHITE)}
         self.inventory[i]=slot
         for _,n in pairs(slot) do self.hud_nodes[#self.hud_nodes+1]=n end
     end
@@ -533,6 +536,9 @@ local function render(self,alpha)
     end
     for _,e in ipairs(s.effects) do
         local x,y=CX+e.x-self.view_x,CY+e.y-self.view_y
+        if e.kind==3 or e.kind==4 or e.kind==7 or e.kind==8 then
+            x,y=CX+mix(s.px,s.x,alpha)-self.view_x,CY+mix(s.py,s.y,alpha)-self.view_y
+        end
         local total=e.total or 0.22
         local age=math.max(0,total-e.life)
         local fade=vmath.vector4(1,1,1,math.min(1,e.life/0.16))
@@ -607,6 +613,8 @@ local function render(self,alpha)
     for id,rank in ipairs(s.artifact) do
         if rank>0 then ids[next_artifact]=id+5;next_artifact=next_artifact+1 end
     end
+    gui.set_text(self.weapon_count,"ОРУЖИЕ "..(next_weapon-1).."/4")
+    gui.set_text(self.artifact_count,"АРТЕФАКТЫ "..(next_artifact-5).."/4")
     for i,slot in ipairs(self.inventory) do
         local id=ids[i]
         gui.set_enabled(slot.icon,id~=nil and self.mode=="run")
