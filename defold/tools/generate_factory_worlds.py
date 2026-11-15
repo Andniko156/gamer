@@ -4,9 +4,29 @@ from PIL import Image, ImageDraw
 import math
 A = Path(__file__).resolve().parents[1] / 'art'
 
-def tile(name, bg, plate, seam, shine, axis):
+def tile(name, bg, plate, seam, shine, axis, scenery=None):
     im=Image.new('RGBA',(384,384),bg); d=ImageDraw.Draw(im)
     if axis=='vertical':
+        for x0 in (0,350):
+            if scenery=='forest':
+                for y in range(22,384,58):
+                    x=x0+16+(y//58%2)*8
+                    d.rectangle((x-3,y,x+3,y+38),fill='#26383b')
+                    d.polygon([(x-17,y+11),(x,y-15),(x+17,y+11)],fill='#41605b')
+                    d.polygon([(x-14,y+24),(x,y+1),(x+14,y+24)],fill='#304d4c')
+            elif scenery=='bridge':
+                d.rectangle((x0,0,x0+34,383),fill='#23333a')
+                for y in range(18,384,64):
+                    d.line((x0,y,x0+34,y+30),fill='#91836a',width=4)
+                    d.line((x0+34,y,x0,y+30),fill='#91836a',width=4)
+                    d.rectangle((x0+6,y+8,x0+11,y+13),fill='#d7a866')
+            elif scenery=='city':
+                for y in range(0,384,95):
+                    x=x0+(y//95%2)*8
+                    d.rectangle((x,y+11,x+30,y+92),fill='#303c43')
+                    d.rectangle((x+5,y+20,x+23,y+24),fill='#d5a25e')
+                    d.rectangle((x+5,y+39,x+23,y+43),fill='#bd8050')
+                    d.rectangle((x+23,y+2,x+27,y+18),fill='#54616a')
         d.rectangle((35,0,348,383),fill=plate)
         for x in (37,46,338,347): d.line((x,0,x,383),fill=seam,width=3)
         for y in range(0,384,48):
@@ -21,6 +41,15 @@ def tile(name, bg, plate, seam, shine, axis):
             d.rectangle((20,y-18,35,y+18),fill=seam)
             d.rectangle((349,y-18,364,y+18),fill=seam)
     else:
+        d.rectangle((0,0,383,383),fill='#15243b')
+        for x in range(12,384,62):
+            d.rectangle((x,10,x+3,13),fill='#9daeb0')
+            d.rectangle((x+28,368,x+30,370),fill='#8797ad')
+        for y in (4,365):
+            for x in (20,154,300):
+                d.rectangle((x,y+10,x+34,y+19),fill='#34445d')
+                d.rectangle((x+7,y+1,x+26,y+11),fill='#576376')
+                d.rectangle((x+13,y-5,x+20,y+2),fill='#aa946b')
         d.rectangle((0,28,383,355),fill=plate)
         for y in (30,39,345,354): d.line((0,y,383,y),fill=seam,width=3)
         for x in range(0,384,48):
@@ -35,9 +64,11 @@ def tile(name, bg, plate, seam, shine, axis):
     im.save(A/name)
 
 tile('arena_express.png','#172023','#485157','#20292d','#bd8a48','vertical')
+for scene in ('forest','bridge','city'):
+    tile(f'arena_express_{scene}.png','#172023','#485157','#20292d','#bd8a48','vertical',scene)
 tile('arena_bastion.png','#172a44','#4d4542','#27252b','#c59a55','horizontal')
-for name in ('arena_express','arena_bastion'):
-    (A/(name+'.atlas')).write_text('images { image: "/art/'+name+'.png" }\nmargin: 2\nextrude_borders: 2\n')
+(A/'arena_express.atlas').write_text(''.join(f'images {{ image: "/art/arena_express_{scene}.png" }}\n' for scene in ('forest','bridge','city'))+'margin: 2\nextrude_borders: 2\n')
+(A/'arena_bastion.atlas').write_text('images { image: "/art/arena_bastion.png" }\nmargin: 2\nextrude_borders: 2\n')
 
 palettes=[('#557b78','#91d4c0','#d0a555'),('#5b4b48','#d1a06d','#e7bd73'),('#394750','#b07854','#dfb063'),('#394a61','#aab9c4','#eac575')]
 for arena,(dark,metal,light) in enumerate(palettes,1):
@@ -118,7 +149,10 @@ for idx,color,shape in [(19,'#6bd7fb','rail'),(20,'#e9b36d','pendulum'),(21,'#64
         d.polygon([(20,32),(9,20),(10,13),(16,10),(20,14),(24,10),(30,13),(31,20)],fill=color)
     im.save(A/f'item_{idx}.png')
 
-with (A/'sprites.atlas').open('a') as f:
+sprites=A/'sprites.atlas'
+base=sprites.read_text().split('images { image: "/art/enemy_1_1.png" }')[0]
+sprites.write_text(base)
+with sprites.open('a') as f:
     for arena in range(1,5):
         for kind in range(1,11): f.write(f'images {{ image: "/art/enemy_{arena}_{kind}.png" }}\n')
     for idx in (19,20,21,22,23,24): f.write(f'images {{ image: "/art/item_{idx}.png" }}\n')

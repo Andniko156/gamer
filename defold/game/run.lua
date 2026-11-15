@@ -28,7 +28,7 @@ end
 local function ring_spawn(s, kind, distance, angle, elite)
     local x,y=s.x+distance*cos(angle),s.y+distance*sin(angle)
     if s.arena==3 then x=max(-145,min(145,x))
-    elseif s.arena==4 then y=max(-195,min(195,y)) end
+    elseif s.arena==4 then y=max(-165,min(165,y)) end
     return spawn(s, kind, x, y, elite)
 end
 
@@ -111,7 +111,7 @@ local function waves(s)
             for i=2,13 do
                 local a=f.angle+i*tau/15
                 local x,y=f.x+205*cos(a),f.y+205*sin(a)
-                if s.arena==3 then x=max(-145,min(145,x)) elseif s.arena==4 then y=max(-195,min(195,y)) end
+                if s.arena==3 then x=max(-145,min(145,x)) elseif s.arena==4 then y=max(-165,min(165,y)) end
                 spawn(s,(f.kind==4 and i%3==0) and 3 or 1,x,y)
             end
         else
@@ -119,7 +119,7 @@ local function waves(s)
                 local a=f.angle+line*math.pi/2
                 for i=-4,4 do
                     local x,y=f.x+255*cos(a)-i*25*sin(a),f.y+255*sin(a)+i*25*cos(a)
-                    if s.arena==3 then x=max(-145,min(145,x)) elseif s.arena==4 then y=max(-195,min(195,y)) end
+                    if s.arena==3 then x=max(-145,min(145,x)) elseif s.arena==4 then y=max(-165,min(165,y)) end
         local u=spawn(s,2,x,y)
                     u.dash_x,u.dash_y,u.dash_until=-cos(a),-sin(a),s.time+3.8
                 end
@@ -325,11 +325,9 @@ local function attack(s,dt)
                 effect(s,8,s.x,s.y,radius)
                 recharge=(evo and 1.15 or 2.15-rank*0.12)*(1-s.artifact[8]*0.05)
             elseif k==8 and target then
-                local a=math.atan2(target.y-s.y,target.x-s.x)
                 local radius=evo and 82 or 45+rank*5
                 s.effects[#s.effects+1]={kind=10,x=target.x,y=target.y,r=radius,
                     life=(evo and 4.5 or 2.4+rank*0.3)*(1+s.artifact[9]*0.09),total=5,tick=0}
-                effect(s,3,target.x,target.y,radius,a)
                 recharge=evo and 2.1 or 3.1-rank*0.12
             end
             if recharge then s.cooldown[k]=recharge*(1-s.artifact[2]*0.06) end
@@ -396,7 +394,7 @@ local function enemy_move(s,u,dt)
                 local a=i*math.pi+random(s)*0.3
                 local x,y=u.x+cos(a)*65,u.y+sin(a)*65
                 if s.arena==3 then x=max(-145,min(145,x)) end
-                if s.arena==4 then y=max(-195,min(195,y)) end
+                if s.arena==4 then y=max(-165,min(165,y)) end
                 local helper=spawn(s,s.arena==2 and 2 or 1,x,y)
                 helper.warning=s.time+1.1
                 helper.warning_started=s.time
@@ -549,7 +547,7 @@ function M.step(s,dt,mx,my)
             *(s.slowed_until>s.time and 0.70 or 1)
         s.x,s.y=s.x+mx/max(1,magnitude)*speed*dt,s.y+my/max(1,magnitude)*speed*dt
         if s.arena==3 then s.x=max(-140,min(140,s.x)) end
-        if s.arena==4 then s.y=max(-190,min(190,s.y)) end
+        if s.arena==4 then s.y=max(-155,min(155,s.y)) end
     end
     s.invincible=max(0,s.invincible-dt)
     field_crates(s,dt)
@@ -566,7 +564,7 @@ function M.step(s,dt,mx,my)
             u.px,u.py=u.x,u.y
             enemy_move(s,u,dt)
             if s.arena==3 then u.x=max(-150,min(150,u.x)) end
-            if s.arena==4 then u.y=max(-200,min(200,u.y)) end
+            if s.arena==4 then u.y=max(-165,min(165,u.y)) end
             local gx,gy=floor(u.x/44),floor(u.y/44)
             for ox=-1,1 do for oy=-1,1 do
                 local bucket=grid[(gx+ox)*131071+gy+oy]

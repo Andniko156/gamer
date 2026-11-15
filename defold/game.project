@@ -1,6 +1,6 @@
 [project]
 title = Latunnaya Noch
-version = 0.14.0
+version = 0.15.0
 
 [bootstrap]
 main_collection = /game/main.collectionc
@@ -24,7 +24,7 @@ max_count = 2
 
 [android]
 package = com.andniko.latunnayanoch.defold
-version_code = 13
+version_code = 14
 app_icon_36x36 = /assets/app_icons/icon_36.png
 app_icon_48x48 = /assets/app_icons/icon_48.png
 app_icon_72x72 = /assets/app_icons/icon_72.png
