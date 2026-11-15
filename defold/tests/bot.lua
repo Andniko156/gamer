@@ -1,6 +1,6 @@
 local run = require "game.run"
 
-local function simulate(hero, seed, arena)
+local function simulate(hero, seed, arena, observe)
     local s = run.new(hero, seed, nil, arena)
     assert(#s.enemies == 10)
     for _=1,36050 do
@@ -33,6 +33,7 @@ local function simulate(hero, seed, arena)
             end
         end
         run.step(s,1/60,mx,my)
+        if observe then observe(s) end
     end
     error("run did not finish")
 end

@@ -305,6 +305,36 @@ local function render(self,alpha)
             paint(self,x,y,27,27,l.evolves and TEAL or NEUTRAL,l.kind=="chest" and "item_12" or "item_13")
         end
     end
+    if self.mode=="run" then
+        local target,priority,distance=nil,math.huge,math.huge
+        for _,l in ipairs(s.loot) do
+            if l.kind=="chest" then
+                local dx,dy=l.x-s.x,l.y-s.y
+                local dist=dx*dx+dy*dy
+                if priority>1 or (priority==1 and dist<distance) then
+                    target,priority,distance=l,1,dist
+                end
+            end
+        end
+        if not target then
+            for _,c in ipairs(s.crates) do
+                local dx,dy=c.x-s.x,c.y-s.y
+                local dist=dx*dx+dy*dy
+                if dist<distance then target,priority,distance=c,2,dist end
+            end
+        end
+        if target then
+            local tx,ty=CX+target.x-self.view_x,CY+target.y-self.view_y
+            if tx<32 or tx>WIDTH-32 or ty<123 or ty>632 then
+                local dx,dy=tx-CX,ty-CY
+                local fraction=math.min(1,185/math.max(1,math.abs(dx)),270/math.max(1,math.abs(dy)))
+                local x=math.max(32,math.min(WIDTH-32,CX+dx*fraction))
+                local y=math.max(123,math.min(632,CY+dy*fraction))
+                local icon=priority==1 and "item_12" or "item_"..(13+target.kind)
+                paint(self,x,y,30,30,priority==1 and TEAL or GOLD,icon,nil,"overlay")
+            end
+        end
+    end
     local f=s.formation
     if f then
         if f.kind%2==0 then
