@@ -89,11 +89,11 @@ end
 -- Level choices respect full inventories, even when all their ranks are capped.
 do
     local s=run.new(1,9)
-    s.weapon={6,6,6,6,0};s.artifact={5,5,5,5,0,0}
+    s.weapon={6,6,6,6,0,0,0,0};s.artifact={5,5,5,5,0,0,0,0,0}
     s.xp=s.need
     run.step(s,dt,0,0)
-    assert(#s.options==1 and s.options[1]==12)
-    assert(run.choose(s,12))
+    assert(#s.options==1 and s.options[1]==18)
+    assert(run.choose(s,18))
     assert(s.weapon[5]==0 and s.artifact[5]==0 and s.artifact[6]==0)
 end
 print("Combat checks passed: disk sweep, cooldown, fixed telegraphs, escape, recovery, slots")

@@ -1,5 +1,5 @@
 local simulate=require "tests.bot"
-for arena=1,2 do
+for arena=1,4 do
     local wins=0
     for hero=1,5 do
         local s=simulate(hero,644+hero*3,arena)
@@ -8,5 +8,5 @@ for arena=1,2 do
         print(string.format("arena=%d hero=%d time=%.1f won=%s crates=%d",
             arena,hero,s.time,tostring(s.won),#s.crates))
     end
-    assert(wins>=1,"both arenas should permit at least one complete bot win")
+    assert(wins>=1,"each arena should permit at least one complete bot win")
 end

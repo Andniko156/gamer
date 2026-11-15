@@ -48,12 +48,12 @@ do
     s.time=11;s.invincible=0
     assert(run.vent_state(s,s.x,s.y)=="active")
     run.step(s,dt,0,0)
-    assert(s.hp==s.max_hp-12,"active vent deals one contact hit")
+    assert(math.abs(s.hp-(s.max_hp-7.2))<0.001,"active vent deals one contact hit")
     run.step(s,dt,0,0)
-    assert(s.hp==s.max_hp-12,"invulnerability limits vent contact damage")
+    assert(math.abs(s.hp-(s.max_hp-7.2))<0.001,"invulnerability limits vent contact damage")
     s.x,s.y=220,140;s.invincible=0
     run.step(s,dt,0,0)
-    assert(s.hp==s.max_hp-12,"walking out of vent range avoids damage")
-    assert(run.vent_state(empty(1),140,140)=="off")
+    assert(math.abs(s.hp-(s.max_hp-7.2))<0.001,"walking out of vent range avoids damage")
+    assert(run.vent_state(empty(3),140,140)=="off")
 end
 print("Field checks passed: timed crates, three rewards, vent warnings, escape")

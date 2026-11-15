@@ -3,6 +3,8 @@ fonts { name: "hud" font: "/game/cyrillic.font" }
 textures { name: "sprites" texture: "/art/sprites.atlas" }
 textures { name: "foundry" texture: "/art/arena_foundry.atlas" }
 textures { name: "channels" texture: "/art/arena_channels.atlas" }
+textures { name: "express" texture: "/art/arena_express.atlas" }
+textures { name: "bastion" texture: "/art/arena_bastion.atlas" }
 textures { name: "vfx" texture: "/art/vfx.atlas" }
 textures { name: "ui" texture: "/art/ui.atlas" }
 material: "/builtins/materials/gui.material"

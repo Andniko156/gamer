@@ -87,13 +87,21 @@ local function menu_floor(self)
     self.menu[#self.menu+1]=floor
 end
 
+local function item_icon(id)
+    if id<=5 then return "item_"..id end
+    if id<=8 then return "item_"..(id+13) end
+    if id<=14 then return "item_"..(id-3) end
+    if id<=17 then return "item_"..(id+7) end
+    return "item_13"
+end
+
 local function item_info(id)
-    if id<=5 then
-        return data.weapon_effects[id],"Пара: "..data.artifacts[id].." → "..data.evolutions[id]
-    elseif id<=11 then
-        local index=id-5
-        if index<=5 then
-            return data.artifact_effects[index],"Пара: "..data.weapons[index].." → "..data.evolutions[index]
+    if id<=8 then
+        return data.weapon_effects[id],"Пара: "..data.artifacts[data.evolution_artifact[id]].." → "..data.evolutions[id]
+    elseif id<=17 then
+        local index=id-8
+        for weapon,artifact in ipairs(data.evolution_artifact) do
+            if artifact==index then return data.artifact_effects[index],"Пара: "..data.weapons[weapon].." → "..data.evolutions[weapon] end
         end
         return data.artifact_effects[index],"Без эволюционной пары"
     end
@@ -135,8 +143,8 @@ show_hangar=function(self)
         self.doctrine=self.doctrine%3+1;show_hangar(self)
     end)
     remember(self,label(CX,303,notes[self.doctrine],13,WHITE))
-    control(self,CX,266,352,48,self.arena==1 and "Арена: Литейная № 7" or "Арена: Паровые каналы",function()
-        self.arena=3-self.arena;show_hangar(self)
+    control(self,CX,266,352,48,"Арена: "..data.arena_names[self.arena],function()
+        self.arena=self.arena%4+1;show_hangar(self)
     end)
     if allowed(self,self.hero) then control(self,CX,187,352,60,"НАЧАТЬ ВЫЛАЗКУ",function() start(self) end,true) end
     remember(self,label(CX,130,"Веди палец по арене · атака автоматически",12,WHITE))
@@ -189,8 +197,8 @@ show_level=function(self)
     remember(self,label(CX,550,self.banish and "ИСКЛЮЧИТЬ ПРЕДМЕТ" or "ВЫБЕРИ УСИЛЕНИЕ",22,GOLD))
     for i,id in ipairs(s.options) do
         local item=id
-        local rank=id<=5 and s.weapon[id] or id<=11 and s.artifact[id-5] or nil
-        local title=run.item_name(id)..(rank and (" · "..(rank+1).."/"..(id<=5 and 6 or 5)) or "")
+        local rank=id<=8 and s.weapon[id] or id<=17 and s.artifact[id-8] or nil
+        local title=run.item_name(id)..(rank and (" · "..(rank+1).."/"..(id<=8 and 6 or 5)) or "")
         local y=486-(i-1)*100
         local hit=control(self,CX,y,366,92,"",function()
             if run.choose(s,item,self.banish) then
@@ -199,7 +207,7 @@ show_level=function(self)
             end
         end)
         if rank and rank>0 then gui.set_color(hit,vmath.vector4(0.77,1,0.95,1)) end
-        remember(self,sprite(67,y+7,42,42,"item_"..(id==12 and 13 or id)))
+        remember(self,sprite(67,y+7,42,42,item_icon(id)))
         remember(self,label(252,y+25,title,16,GOLD))
         local description,pair=item_info(id)
         remember(self,label(250,y-1,description,12,WHITE))
@@ -244,7 +252,7 @@ show_build=function(self,selected)
     remember(self,label(320,628,"АРТЕФАКТЫ · 4",13,TEAL))
     local weapons,artifacts={},{}
     for id,rank in ipairs(s.weapon) do if rank>0 then weapons[#weapons+1]=id end end
-    for index,rank in ipairs(s.artifact) do if rank>0 then artifacts[#artifacts+1]=index+5 end end
+    for index,rank in ipairs(s.artifact) do if rank>0 then artifacts[#artifacts+1]=index+8 end end
     for column,items in ipairs({weapons,artifacts}) do
         for row=1,4 do
             local id=items[row]
@@ -252,12 +260,12 @@ show_build=function(self,selected)
             local y=590-(row-1)*63
             if id then
                 local item=id
-                local rank=id<=5 and s.weapon[id] or s.artifact[id-5]
+                local rank=id<=8 and s.weapon[id] or s.artifact[id-8]
                 local hit=control(self,x,y,192,54,"",function() show_build(self,item) end)
                 if item==current then gui.set_color(hit,vmath.vector4(0.82,1,0.94,1)) end
-                remember(self,sprite(x-77,y,28,28,"item_"..id))
-                remember(self,label(x+15,y+8,data.weapons[id] or data.artifacts[id-5],11,WHITE))
-                remember(self,label(x+15,y-13,rank.."/"..(id<=5 and 6 or 5),11,TEAL))
+                remember(self,sprite(x-77,y,28,28,item_icon(id)))
+                remember(self,label(x+15,y+8,data.weapons[id] or data.artifacts[id-8],11,WHITE))
+                remember(self,label(x+15,y-13,rank.."/"..(id<=8 and 6 or 5),11,TEAL))
             else
                 remember(self,skin(x,y,192,54,"ui_panel"))
                 remember(self,label(x,y,"—",15,DORMANT))
@@ -404,15 +412,55 @@ local function render(self,alpha)
     local step=384
     local bx=math.floor((self.view_x-CX)/step)
     local by=math.floor((self.view_y-CY)/step)
-    local atlas=s.arena==2 and "channels" or "foundry"
-    local skin=s.arena==2 and "arena_channels" or "arena_foundry"
+    local atlases={"foundry","channels","express","bastion"}
+    local skins={"arena_foundry","arena_channels","arena_express","arena_bastion"}
+    local atlas,skin=atlases[s.arena],skins[s.arena]
     for ix=bx,bx+2 do for iy=by,by+3 do
         local x,y=CX+(ix+0.5)*step-self.view_x,CY+(iy+0.5)*step-self.view_y
         if x>-step*0.5 and x<WIDTH+step*0.5 and y>-step*0.5 and y<HEIGHT+step*0.5 then
             paint(self,x,y,step,step,NEUTRAL,skin,nil,"floor",atlas)
         end
     end end
-    if s.arena==2 then
+    -- Large landmarks repeat at measured intervals. The center remains open for dodging.
+    if s.arena<=2 then
+        local cell=384
+        for ix=bx,bx+2 do for iy=by,by+3 do
+            local wx,wy=ix*cell+cell*0.5,iy*cell+cell*0.5
+            local x,y=CX+wx-self.view_x,CY+wy-self.view_y
+            if x>-100 and x<WIDTH+100 and y>-100 and y<HEIGHT+100 then
+                local metal=s.arena==1 and TEAL or GOLD
+                local muted=vmath.vector4(metal.x,metal.y,metal.z,0.48)
+                for k=1,12 do
+                    local a=k*math.pi/6
+                    local radius=s.arena==1 and 86 or 108
+                    paint(self,x+math.cos(a)*radius,y+math.sin(a)*radius,18,7,muted,nil,math.deg(a),"arena")
+                end
+                paint(self,x,y,52,52,vmath.vector4(0.04,0.07,0.09,0.85),nil,nil,"arena")
+                paint(self,x,y,36,36,muted,"item_17",nil,"arena")
+                for sign=-1,1,2 do
+                    local ox=x+sign*150
+                    paint(self,ox,y,40,74,vmath.vector4(0.08,0.10,0.11,0.75),nil,nil,"arena")
+                    paint(self,ox,y+24,33,5,muted,nil,nil,"arena")
+                    paint(self,ox,y-21,21,3,metal,nil,nil,"arena")
+                end
+            end
+        end end
+    else
+        local edge=s.arena==3 and 155 or 205
+        for sign=-1,1,2 do
+            local x,y=s.arena==3 and CX+sign*edge-self.view_x or CX,
+                s.arena==3 and CY or CY+sign*edge-self.view_y
+            local color=s.arena==3 and GOLD or TEAL
+            if s.arena==3 then
+                paint(self,x,y,12,HEIGHT,color,nil,nil,"arena")
+                paint(self,x+sign*51,y,80,HEIGHT,vmath.vector4(0.07,0.14,0.18,0.83),nil,nil,"arena")
+            else
+                paint(self,x,y,WIDTH,12,color,nil,nil,"arena")
+                paint(self,x,y+sign*78,WIDTH,140,vmath.vector4(0.06,0.12,0.22,0.76),nil,nil,"arena")
+            end
+        end
+    end
+    if s.arena<=2 then
         local cfg=data.vents
         local bx=math.floor((self.view_x-CX-cfg.offset)/cfg.spacing)
         local by=math.floor((self.view_y-CY-cfg.offset)/cfg.spacing)
@@ -518,7 +566,7 @@ local function render(self,alpha)
         paint(self,x,y-14,side*0.35,6,SHADOW)
         if u.elite then paint(self,x,y-26,42,5,GOLD) end
         paint(self,x,y+bob,side*(1+gait*0.045),side*(1-gait*0.05),
-            (u.flash and u.flash>0) and GOLD or NEUTRAL,"enemy_"..u.kind,tilt)
+            (u.flash and u.flash>0) and GOLD or NEUTRAL,"enemy_"..s.arena.."_"..u.kind,tilt)
     end
     for _,p in ipairs(s.shots) do
         paint(self,CX+mix(p.px,p.x,alpha)-self.view_x,CY+mix(p.py,p.y,alpha)-self.view_y,
@@ -583,6 +631,21 @@ local function render(self,alpha)
                 paint(self,x+math.cos(a)*distance,y+math.sin(a)*distance+age*13,
                     puff,puff,vmath.vector4(0.88,0.94,0.90,opacity*0.38),nil,nil,"arena")
             end
+        elseif e.kind==11 then
+            local progress=1-e.life/e.total
+            for i=1,8 do
+                local a=e.angle+i*math.pi/4
+                local spread=e.r*(0.3+progress*1.3)
+                paint(self,x+math.cos(a)*spread,y+math.sin(a)*spread,5,5,
+                    vmath.vector4(0.86,0.58,0.29,e.life/e.total),nil,math.deg(a),"arena")
+            end
+        elseif e.kind==10 then
+            local a=math.min(0.36,e.life/1.4)
+            paint(self,x,y,e.r*2,e.r*2,vmath.vector4(0.15,0.85,0.56,a),nil,nil,"arena")
+            for i=1,12 do
+                local theta=i*math.pi/6+s.time*0.3
+                paint(self,x+math.cos(theta)*e.r,y+math.sin(theta)*e.r,9,3,vmath.vector4(0.4,1,0.72,a*2),nil,math.deg(theta),"danger")
+            end
         elseif e.kind==9 then
             for i=1,12 do
                 local a=i*math.pi/6
@@ -611,7 +674,7 @@ local function render(self,alpha)
         if rank>0 then ids[next_weapon]=id;next_weapon=next_weapon+1 end
     end
     for id,rank in ipairs(s.artifact) do
-        if rank>0 then ids[next_artifact]=id+5;next_artifact=next_artifact+1 end
+        if rank>0 then ids[next_artifact]=id+8;next_artifact=next_artifact+1 end
     end
     gui.set_text(self.weapon_count,"ОРУЖИЕ "..(next_weapon-1).."/4")
     gui.set_text(self.artifact_count,"АРТЕФАКТЫ "..(next_artifact-5).."/4")
@@ -619,14 +682,14 @@ local function render(self,alpha)
         local id=ids[i]
         gui.set_enabled(slot.icon,id~=nil and self.mode=="run")
         if id then
-            if slot.id~=id then gui.play_flipbook(slot.icon,"item_"..id);slot.id=id end
-            local rank=id<=5 and s.weapon[id] or s.artifact[id-5]
-            gui.set_text(slot.rank,s.evolved[id] and id<=5 and "ЭВО" or rank.."/"..(id<=5 and data.weapon_max or data.artifact_max))
-            gui.set_color(slot.rank,id<=5 and s.evolved[id] and TEAL or WHITE)
+            if slot.id~=id then gui.play_flipbook(slot.icon,item_icon(id));slot.id=id end
+            local rank=id<=8 and s.weapon[id] or s.artifact[id-8]
+            gui.set_text(slot.rank,s.evolved[id] and id<=8 and "ЭВО" or rank.."/"..(id<=8 and data.weapon_max or data.artifact_max))
+            gui.set_color(slot.rank,id<=8 and s.evolved[id] and TEAL or WHITE)
         else gui.set_text(slot.rank,"—") end
     end
     local alert=s.notice_until and s.notice_until>s.time and s.notice or ""
-    if alert=="" and s.boss and s.boss.hp>0 then alert="Смотритель · "..math.ceil(s.boss.hp/s.boss.max_hp*100).."%" end
+    if alert=="" and s.boss and s.boss.hp>0 then alert=data.arena_foes[s.arena][6].." · "..math.ceil(s.boss.hp/s.boss.max_hp*100).."%" end
     gui.set_text(self.banner,alert)
     gui.set_enabled(self.perf_text,self.mode=="run" and self.diagnostics)
     if self.diagnostics then

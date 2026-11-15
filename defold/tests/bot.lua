@@ -8,7 +8,7 @@ local function simulate(hero, seed, arena, observe)
         if s.mode=="level" then
             local selected=s.options[1]
             for _, id in ipairs(s.options) do
-                if id==12 and s.hp<s.max_hp*0.42 then selected=id;break end
+                if id==18 and s.hp<s.max_hp*0.42 then selected=id;break end
             end
             run.choose(s,selected)
         end
