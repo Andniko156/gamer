@@ -64,7 +64,7 @@ local function allowed(self,i)
         or (i==4 and (p.kills or 0)>=100) or (i==5 and p.won)
 end
 
-local show_hangar, show_level, show_pause, finish, start
+local show_hangar, show_level, show_pause, show_intro, finish, start
 
 local function actor(self,name)
     if self.actor_anim~=name then
@@ -104,7 +104,32 @@ show_hangar=function(self)
     end)
     if allowed(self,self.hero) then control(self,CX,188,340,58,"Начать вылазку",function() start(self) end) end
     remember(self,label(CX,121,"Веди палец по арене. Оружие стреляет само.",15,WHITE))
-    remember(self,label(CX,96,"На компьютере · WASD или стрелки",14,TEAL))
+    control(self,CX,83,200,32,"Как играть",function() show_intro(self,1) end)
+end
+
+show_intro=function(self,page)
+    clear_menu(self)
+    self.mode="intro"
+    local chapters={
+        {"01 · Двигайся","Веди палец по арене — герой идёт.","На компьютере · WASD или стрелки.",
+            "Оружие атакует автоматически."},
+        {"02 · Собирай","Побеждай машины и собирай опыт.","На новом уровне выбирай усиление.",
+            "Оружия и артефактов: по 4 слота."},
+        {"03 · Создай билд","Повышай оружие до VI ранга,","парный артефакт — до III ранга.",
+            "Эволюция появится из шкатулки элиты."},
+    }
+    local chapter=chapters[page]
+    remember(self,box(CX,CY,396,466,INK))
+    remember(self,label(CX,534,chapter[1],25,GOLD))
+    for i=2,4 do remember(self,label(CX,465-(i-2)*50,chapter[i],15,WHITE)) end
+    remember(self,label(CX,291,page.." / 3",14,TEAL))
+    control(self,CX,224,320,52,page==3 and "В ангар" or "Далее",function()
+        if page<3 then show_intro(self,page+1)
+        else self.profile.tutorial_seen=true;save(self);show_hangar(self) end
+    end)
+    if page<3 then control(self,CX,159,320,38,"Пропустить",function()
+        self.profile.tutorial_seen=true;save(self);show_hangar(self)
+    end) end
 end
 
 start=function(self)
@@ -112,6 +137,7 @@ start=function(self)
     self.run=run.new(self.hero,os.time(),self.doctrine,self.arena)
     self.mode,self.remainder,self.drag,self.banish="run",0,nil,false
     self.actor_anim=nil
+    self.perf={elapsed=0,frames=0,fps=0,lowest=math.huge,peak_enemies=0,peak_nodes=0}
     actor(self,data.heroes[self.hero][2].."_0")
     gui.set_enabled(self.actor,true)
 end
@@ -146,10 +172,18 @@ end
 show_pause=function(self)
     clear_menu(self)
     self.mode,self.drag="pause",nil
-    remember(self,box(CX,CY,380,260,INK))
-    remember(self,label(CX,445,"Пауза",26,GOLD))
-    control(self,CX,374,320,50,"Продолжить",function() clear_menu(self);self.mode="run" end)
-    control(self,CX,308,320,50,"Завершить вылазку",function() finish(self) end)
+    remember(self,box(CX,CY,380,336,INK))
+    remember(self,label(CX,481,"Пауза",26,GOLD))
+    control(self,CX,414,320,48,"Продолжить",function() clear_menu(self);self.mode="run" end)
+    control(self,CX,348,320,48,self.diagnostics and "Диагностика: вкл" or "Диагностика: выкл",function()
+        self.diagnostics=not self.diagnostics;show_pause(self)
+    end)
+    if self.diagnostics then
+        local p=self.perf
+        remember(self,label(CX,306,string.format("FPS %d · минимум %d",p.fps,p.lowest==math.huge and 0 or p.lowest),14,TEAL))
+        remember(self,label(CX,281,"Врагов максимум "..p.peak_enemies.." · узлов "..p.peak_nodes,13,WHITE))
+    end
+    control(self,CX,241,320,48,"Завершить вылазку",function() finish(self) end)
 end
 
 local function clock(t)
@@ -182,7 +216,7 @@ function init(self)
     msg.post(".","acquire_input_focus")
     self.profile=sys.load(sys.get_save_file("latunnaya_noch","profile"))
     self.menu,self.buttons,self.keys,self.pool,self.pool_skin,self.floor={},{},{},{},{},{}
-    self.hero,self.doctrine,self.arena,self.remainder=1,1,1,0
+    self.hero,self.doctrine,self.arena,self.remainder,self.diagnostics=1,1,1,0,false
     window.set_listener(function(_,event)
         if event==window.WINDOW_EVENT_FOCUS_LOST then
             self.keys,self.drag={},nil
@@ -200,6 +234,7 @@ function init(self)
     self.xp=box(CX,707,366,6,TEAL)
     self.more=label(CX,690,"",12,WHITE)
     self.banner=label(CX,657,"",16,GOLD)
+    self.perf_text=label(CX,675,"",11,TEAL)
     self.pause_hit=box(397,743,48,46,PANEL)
     self.pause_label=label(397,743,"II",18,GOLD)
     self.stick=box(0,0,66,66,vmath.vector4(0.36,0.29,0.31,0.55))
@@ -208,7 +243,7 @@ function init(self)
     gui.set_layer(self.thumb,"overlay")
     gui.set_enabled(self.stick,false)
     gui.set_enabled(self.thumb,false)
-    self.hud_nodes={self.hud,self.time_text,self.hp,self.xp,self.more,self.banner,self.pause_hit,self.pause_label}
+    self.hud_nodes={self.hud,self.time_text,self.hp,self.xp,self.more,self.banner,self.perf_text,self.pause_hit,self.pause_label}
     self.inventory={}
     self.hud_nodes[#self.hud_nodes+1]=box(CX,62,400,78,INK)
     self.hud_nodes[#self.hud_nodes+1]=label(120,89,"ОРУЖИЕ · 4",12,GOLD)
@@ -221,6 +256,7 @@ function init(self)
     end
     for _,n in ipairs(self.hud_nodes) do gui.set_layer(n,"overlay") end
     show_hangar(self)
+    if not self.profile.tutorial_seen then show_intro(self,1) end
 end
 
 local function pooled(self,index)
@@ -434,10 +470,23 @@ local function render(self,alpha)
     local alert=s.notice_until and s.notice_until>s.time and s.notice or ""
     if alert=="" and s.boss and s.boss.hp>0 then alert="Смотритель · "..math.ceil(s.boss.hp/s.boss.max_hp*100).."%" end
     gui.set_text(self.banner,alert)
+    gui.set_enabled(self.perf_text,self.mode=="run" and self.diagnostics)
+    if self.diagnostics then
+        gui.set_text(self.perf_text,string.format("FPS %d   ·   Враги %d   ·   Узлы %d",
+            self.perf.fps,#s.enemies,self.used))
+    end
 end
 
 function update(self,dt)
     if self.mode=="run" then
+        local p=self.perf
+        p.elapsed,p.frames=p.elapsed+dt,p.frames+1
+        p.peak_enemies=math.max(p.peak_enemies,#self.run.enemies)
+        if p.elapsed>=1 then
+            p.fps=math.floor(p.frames/p.elapsed+0.5)
+            if self.run.time>2 then p.lowest=math.min(p.lowest,p.fps) end
+            p.elapsed,p.frames=0,0
+        end
         self.remainder=math.min(self.remainder+dt,STEP*5)
         while self.remainder>=STEP and self.mode=="run" do
             local mx=(self.keys.right and 1 or 0)-(self.keys.left and 1 or 0)
@@ -454,6 +503,7 @@ function update(self,dt)
         self.view_x=mix(self.run.px,self.run.x,a)
         self.view_y=mix(self.run.py,self.run.y,a)
         render(self,a)
+        if self.mode=="run" then self.perf.peak_nodes=math.max(self.perf.peak_nodes,self.used) end
     else
         render(self,1)
     end
