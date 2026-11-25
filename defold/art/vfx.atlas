@@ -7,6 +7,7 @@ images { image: "/art/vfx_storm.png" }
 images { image: "/art/vfx_furnace.png" }
 images { image: "/art/vfx_pressure.png" }
 images { image: "/art/vfx_triple.png" }
+images { image: "/art/white.png" }
 margin: 2
 extrude_borders: 2
 inner_padding: 2

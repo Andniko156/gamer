@@ -22,7 +22,7 @@ local function assert_build_controls()
 end
 
 local function assert_timeline()
-    local s = run.new(1, 24)
+    local s = run.new(1, 24, 1, 2)
     s.time = 87.99
     run.step(s, 1/60, 0, 0)
     assert(s.formation and s.formation.kind == 1)

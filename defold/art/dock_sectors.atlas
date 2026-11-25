@@ -1,0 +1,21 @@
+images { image: "/art/dock_sectors/breaker_cabinet.png" }
+images { image: "/art/dock_sectors/cargo_marks.png" }
+images { image: "/art/dock_sectors/crate_pallet.png" }
+images { image: "/art/dock_sectors/drain_grate.png" }
+images { image: "/art/dock_sectors/floor_duct.png" }
+images { image: "/art/dock_sectors/pressure_gauge.png" }
+images { image: "/art/dock_sectors/pump_marks.png" }
+images { image: "/art/dock_sectors/pump_station.png" }
+images { image: "/art/dock_sectors/repair_marks.png" }
+images { image: "/art/dock_sectors/service_lane.png" }
+images { image: "/art/dock_sectors/steam_marks.png" }
+images { image: "/art/dock_sectors/steam_vent.png" }
+images { image: "/art/dock_sectors/steel_floor_0.png" }
+images { image: "/art/dock_sectors/steel_floor_1.png" }
+images { image: "/art/dock_sectors/steel_floor_2.png" }
+images { image: "/art/dock_sectors/steel_floor_3.png" }
+images { image: "/art/dock_sectors/tool_cart.png" }
+images { image: "/art/dock_sectors/workbench.png" }
+margin: 0
+extrude_borders: 2
+inner_padding: 2

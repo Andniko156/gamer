@@ -1,0 +1,31 @@
+images { image: "/art/alley/workshop_awning.png" }
+images { image: "/art/alley/service_door.png" }
+images { image: "/art/alley/wall_lantern.png" }
+images { image: "/art/alley/downspout.png" }
+images { image: "/art/alley/roof_vents.png" }
+images { image: "/art/alley/crate_stack.png" }
+images { image: "/art/alley/wet_patch.png" }
+images { image: "/art/alley/wet_crescent.png" }
+images { image: "/art/alley/access_cover.png" }
+images { image: "/art/alley/curb_drain.png" }
+images { image: "/art/alley/stone_wear.png" }
+images { image: "/art/alley/street_grit.png" }
+images { image: "/art/alley/facade_1.png" }
+images { image: "/art/alley/facade_2.png" }
+images { image: "/art/alley/facade_3.png" }
+images { image: "/art/alley/facade_4.png" }
+images { image: "/art/alley/clockmaker_bench.png" }
+images { image: "/art/alley/parts_cabinet.png" }
+images { image: "/art/alley/gear_shop_sign.png" }
+images { image: "/art/alley/water_pump.png" }
+images { image: "/art/alley/pressure_cabinet.png" }
+images { image: "/art/alley/flush_drain.png" }
+images { image: "/art/alley/gas_lamp.png" }
+images { image: "/art/alley/tool_handcart.png" }
+images { image: "/art/alley/iron_railing.png" }
+images { image: "/art/alley/street_arch.png" }
+images { image: "/art/alley/service_stairs.png" }
+images { image: "/art/alley/brick_window.png" }
+margin: 0
+extrude_borders: 2
+inner_padding: 2

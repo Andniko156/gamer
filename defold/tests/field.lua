@@ -1,4 +1,6 @@
 local run=require "game.run"
+local collision=require "game.dock_collision"
+local alley=require "game.alley"
 local dt=1/60
 local function empty(arena)
     local s=run.new(1,19,1,arena)
@@ -12,7 +14,8 @@ do
     run.step(s,dt,0,0)
     assert(#s.crates==1 and s.crates[1].expires>s.time)
     local c=s.crates[1]
-    assert(math.abs(math.sqrt(c.x*c.x+c.y*c.y)-165)<0.01)
+    assert(math.abs(math.sqrt(c.x*c.x+c.y*c.y)-165)<30)
+    assert(not collision.blocked(s.dock,c.x,c.y,12))
     s.next_crate=math.huge;s.time=c.expires
     run.step(s,dt,0,0)
     assert(#s.crates==0,"abandoned crates expire")
@@ -40,18 +43,22 @@ do
 end
 do
     local s=empty(2)
-    s.x,s.y=140,140
-    s.time=10.5
+    local row=0
+    while not alley.section(s.alley,row).vent_x do row=row+1 end
+    local section=alley.section(s.alley,row)
+    s.x,s.y=section.vent_x,section.vent_y
+    local offset=(row%4)*3
+    s.time=12+9.5-offset
     assert(run.vent_state(s,s.x,s.y)=="warning")
     run.step(s,dt,0,0)
     assert(s.hp==s.max_hp,"warning cannot deal damage")
-    s.time=11;s.invincible=0
+    s.time=12+11-offset;s.invincible=0
     assert(run.vent_state(s,s.x,s.y)=="active")
     run.step(s,dt,0,0)
     assert(math.abs(s.hp-(s.max_hp-7.2))<0.001,"active vent deals one contact hit")
     run.step(s,dt,0,0)
     assert(math.abs(s.hp-(s.max_hp-7.2))<0.001,"invulnerability limits vent contact damage")
-    s.x,s.y=220,140;s.invincible=0
+    s.x,s.y=section.center,section.vent_y;s.invincible=0
     run.step(s,dt,0,0)
     assert(math.abs(s.hp-(s.max_hp-7.2))<0.001,"walking out of vent range avoids damage")
     assert(run.vent_state(empty(3),140,140)=="off")

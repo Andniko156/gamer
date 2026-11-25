@@ -1,10 +1,12 @@
+local data = require "game.data"
 local run = require "game.run"
 
 local function simulate(hero, seed, arena, observe)
     local s = run.new(hero, seed, nil, arena)
-    assert(#s.enemies == 22)
+    assert(#s.enemies == data.spawn_waves.initial)
     for _=1,36050 do
         if s.mode=="ended" then return s end
+        if s.mode=="chest" then assert(run.claim_chest(s)) end
         if s.mode=="level" then
             local selected=s.options[1]
             for _, id in ipairs(s.options) do

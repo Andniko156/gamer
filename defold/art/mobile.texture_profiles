@@ -1,0 +1,68 @@
+path_settings {
+  path: "/art/menu.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
+  path: "/art/alley_props.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
+  path: "/art/alley_surfaces.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
+  path: "/art/elite_chest.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
+  path: "/art/dock_sectors.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
+  path: "/art/dock_steam.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
+  path: "/art/dock_bosses.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
+  path: "/art/dock_enemies.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
+  path: "/art/vfx.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
+  path: "/art/arsenal.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
+  path: "**"
+  profile: "Game"
+}
+profiles {
+  name: "Game"
+  platforms {
+    os: OS_ID_GENERIC
+    formats {
+      format: TEXTURE_FORMAT_RGBA
+      compressor: "BasisU"
+      compressor_preset: "BASISU_MEDIUM"
+    }
+    mipmaps: false
+  }
+}
+profiles {
+  name: "Pixel Art"
+  platforms {
+    os: OS_ID_GENERIC
+    formats {
+      format: TEXTURE_FORMAT_RGBA
+      compressor: "Uncompressed"
+      compressor_preset: "UNCOMPRESSED"
+    }
+    mipmaps: false
+  }
+}

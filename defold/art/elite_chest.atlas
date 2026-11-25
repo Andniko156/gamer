@@ -1,0 +1,21 @@
+images { image: "/art/elite_chest/chest_pointer.png" }
+images { image: "/art/elite_chest/elite_chest_00.png" }
+images { image: "/art/elite_chest/elite_chest_01.png" }
+images { image: "/art/elite_chest/elite_chest_02.png" }
+images { image: "/art/elite_chest/elite_chest_03.png" }
+images { image: "/art/elite_chest/elite_chest_04.png" }
+images { image: "/art/elite_chest/elite_chest_05.png" }
+animations {
+  id: "elite_chest_open"
+  images { image: "/art/elite_chest/elite_chest_00.png" }
+  images { image: "/art/elite_chest/elite_chest_01.png" }
+  images { image: "/art/elite_chest/elite_chest_02.png" }
+  images { image: "/art/elite_chest/elite_chest_03.png" }
+  images { image: "/art/elite_chest/elite_chest_04.png" }
+  images { image: "/art/elite_chest/elite_chest_05.png" }
+  playback: PLAYBACK_ONCE_FORWARD
+  fps: 15
+}
+margin: 0
+extrude_borders: 2
+inner_padding: 2

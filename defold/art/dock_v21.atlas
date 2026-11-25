@@ -1,0 +1,20 @@
+images { image: "/art/dock_v21/channel.png" }
+images { image: "/art/dock_v21/dock_core_0.png" }
+images { image: "/art/dock_v21/dock_core_1.png" }
+images { image: "/art/dock_v21/dock_core_2.png" }
+images { image: "/art/dock_v21/dock_core_3.png" }
+images { image: "/art/dock_v21/dock_manifold.png" }
+images { image: "/art/dock_v21/dock_tile_0.png" }
+images { image: "/art/dock_v21/dock_tile_1.png" }
+images { image: "/art/dock_v21/dock_tile_2.png" }
+images { image: "/art/dock_v21/dock_tile_3.png" }
+images { image: "/art/dock_v21/lamp.png" }
+images { image: "/art/dock_v21/pump.png" }
+images { image: "/art/dock_v21/service_grate.png" }
+images { image: "/art/dock_v21/vent.png" }
+images { image: "/art/dock_v21/vent_steam_0.png" }
+images { image: "/art/dock_v21/vent_steam_1.png" }
+images { image: "/art/dock_v21/vent_steam_2.png" }
+margin: 0
+extrude_borders: 2
+inner_padding: 2
