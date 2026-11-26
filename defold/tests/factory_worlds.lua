@@ -1,11 +1,13 @@
 local run=require 'game.run'
 local data=require 'game.data'
+local express=require 'game.express'
+local hero_radius=require('game.dock_collision').hero_radius
 assert(#data.arena_names==4 and #data.arena_foes==4)
 for arena=1,4 do
     local s=run.new(1,arena*29,1,arena)
     s.enemies={}; s.next_spawn=math.huge
     run.step(s,2,1,1)
-    if arena==3 then assert(s.x<=140 and s.x>=-140) end
+    if arena==3 then assert(not express.blocked(s.x,s.y,hero_radius)) end
     if arena==4 then assert(s.y<=190 and s.y>=-190) end
     s.time=179.99
     run.step(s,0.02,0,0)

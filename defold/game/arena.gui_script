@@ -4,7 +4,9 @@ local dock_art = require "game.dock_art"
 local dock_stream = require "game.dock_stream"
 local dock_enemies = require "game.dock_enemies"
 local dock_bosses = require "game.dock_bosses"
+local express_enemies = require "game.express_enemies"
 local alley = require "game.alley"
+local express = require "game.express"
 
 local WIDTH, HEIGHT = data.viewport.width, data.viewport.height
 local CX, CY = WIDTH/2, HEIGHT*data.viewport.hero_y
@@ -106,7 +108,7 @@ end
 
 local function allowed(self,i)
     local p=self.profile
-    return i==1 or (i==2 and (p.time or 0)>=45) or (i==3 and (p.level or 0)>=5)
+    return self.preview_heroes or i==1 or (i==2 and (p.time or 0)>=45) or (i==3 and (p.level or 0)>=5)
         or (i==4 and (p.kills or 0)>=100) or (i==5 and p.won)
 end
 
@@ -597,6 +599,8 @@ function init(self)
     self.menu,self.buttons,self.keys,self.pool={},{},{},{}
     self.previous_used=0
     self.hero,self.doctrine,self.arena,self.remainder,self.diagnostics=1,1,1,0,false
+    self.preview_heroes=sys.get_config_int("express_preview.unlock_heroes",0)==1
+    self.arena=sys.get_config_int("express_preview.start_arena",self.arena)
     self.run_count=0
     self.hangar_time=0
     self.hud_inset=0
@@ -717,7 +721,7 @@ local hazard_palette={
     slow={.78,.55,1}, rotor={.86,.55,1}, magnet={.23,.78,1}, shock={.4,.76,1},
     summon={.47,.9,.72}, steam={.90,.77,.64}, fire={1,.42,.16}, reactor={1,.46,.17},
     disc={1,.69,.29}, guard={1,.71,.36}, bite={1,.57,.30}, slam={1,.56,.26},
-    rail={1,.58,.20}, arc={1,.55,.25}, bomb={1,.44,.25}, combo={1,.51,.25},
+    cinders={1,.58,.20}, arc={1,.55,.25}, bomb={1,.44,.25}, combo={1,.51,.25},
 }
 
 local function threat_color(kind,opacity)
@@ -763,7 +767,7 @@ local function enemy_warning(self,s,u,x,y)
     local sx,sy=CX+u.target_x-self.view_x,CY+u.target_y-self.view_y
     if attack and attack.dash then
         threat_lane(self,kind,x,y,angle,data.attacks.ram.duration*data.attacks.ram.speed,attack.width*2,alpha)
-    elseif attack and attack.shots or kind=="arc" or kind=="rail" then
+    elseif attack and attack.shots or kind=="arc" or kind=="cinders" then
         local count=attack and attack.shots or kind=="arc" and 5 or 3
         local spacing=attack and .24 or kind=="arc" and .30 or .14
         for i=1,count do
@@ -807,6 +811,12 @@ end
 
 local function foe_sprite(arena,kind,state,frame)
     return "a"..arena.."_foe_"..kind.."_"..state.."_"..frame, "foes_"..arena
+end
+
+local function paint_express_enemy(self, skin, u, x, foot_y, tint, time)
+    local scale = u.elite and 1.17 or 1
+    paint(self,x,foot_y+skin.rise*scale,skin.width*scale,skin.height*scale,tint,
+        express_enemies.pose(skin,u,time),nil,"arena","express_enemies")
 end
 
 local ALLEY_CURB=vmath.vector4(.49,.43,.33,1)
@@ -902,6 +912,84 @@ local function render_alley(self,s)
     end
 end
 
+local express_scenery={"side_forest","side_bridge","side_city"}
+local EXPRESS_UNDERFRAME=vmath.vector4(.072,.079,.095,1)
+
+local function render_express(self,s)
+    local ox,oy=CX-self.view_x,CY-self.view_y
+    local pad=self.view_padding
+    local left,right=-ox-pad.x,WIDTH-ox+pad.x
+    local bottom,top=-oy-pad.y,HEIGHT-oy+pad.y
+    local half=express.width/2
+    local art="express_modular"
+    local strip_width,strip_height=132,384
+    local shift=s.time*express.scenery_speed
+    local last_left=math.floor((-left-half+4)/strip_width)
+    local last_right=math.floor((right-half+4)/strip_width)
+    for row=math.floor((bottom-shift)/strip_height),math.floor((top-shift)/strip_height) do
+        local y=(row+.5)*strip_height+oy+shift
+        local scene=express_scenery[math.floor((row+6)/12)%#express_scenery+1]
+        for side=-1,1,2 do
+            local last=side<0 and last_left or last_right
+            for col=0,last do
+                local x=ox+side*(half-4+(col+.5)*strip_width)
+                local flipped=(side<0)~=(col%2==1)
+                paint(self,x,y,strip_width,strip_height,NEUTRAL,scene,nil,"floor",art,nil,flipped)
+            end
+        end
+    end
+    for row=math.floor(bottom/express.period),math.floor((top+express.gap)/express.period) do
+        local car=express.car(row)
+        local y=row*express.period+express.height+oy
+        local x=ox-half
+        local function place(id,u,v,w,h,layer,flip)
+            paint(self,x+u+w/2,y-v-h/2,w,h,NEUTRAL,id,nil,layer,art,nil,flip)
+        end
+        local width,height=express.width,express.height
+        local gap,opening,wall,end_depth=express.gap,express.opening,express.wall,express.end_depth
+        local entry=(width-opening)/2
+        place("car_chassis",-9,0,width+18,height,"inlays")
+        place("car_"..car.deck,0,0,width,height,"inlays")
+        if car.passenger then
+            place("runner_end_north",half-31,7,62,10,"inlays")
+            place("car_runner_repeat",half-31,17,62,height-34,"inlays")
+            place("runner_end_south",half-31,height-17,62,10,"inlays")
+        end
+        paint(self,ox,y-height-gap*.5,width+18,gap+2,EXPRESS_UNDERFRAME,nil,nil,"inlays")
+        place("coupler_buffers",entry-27,-gap,opening+54,gap,"inlays")
+        place("gangway_deck",entry,-gap,opening,gap,"inlays")
+        place("gangway_rail_left",entry-8,-gap,8,gap,"fixtures")
+        place("gangway_rail_right",width-entry,-gap,8,gap,"fixtures")
+        place("wall_left",0,0,wall,height,"fixtures")
+        place("wall_right",width-wall,0,wall,height,"fixtures")
+        place("end_north",0,0,width,end_depth,"fixtures")
+        place("end_south",0,height-end_depth,width,end_depth,"fixtures")
+        for i=0,3 do
+            local v=34+i*(height-116)/3
+            place("window_glow",1,v-17,74,92,"fixtures")
+            place("window_glow",width-75,v-17,74,92,"fixtures")
+            place("window",3,v,16,48,"fixtures")
+            place("window",width-19,v,16,48,"fixtures",true)
+        end
+        place("lamp_glow",-11,79,54,58,"fixtures")
+        place("lamp_glow",width-44,79,54,58,"fixtures")
+        place("wall_lamp",9,96,15,25,"fixtures")
+        place("wall_lamp",width-24,96,15,25,"fixtures",true)
+        for _,prop in ipairs(car.props) do
+            place(prop[1],prop[2],prop[3],prop[4],prop[5],"arena")
+        end
+        if car.steam then
+            local cycle=(s.time+row*.43)%2.4
+            if cycle<.9 then
+                local frame=math.floor(cycle*7)%4
+                place("steam_0"..frame,car.steam[1]-26,car.steam[2]-62,52,68,"weapon_fx")
+            end
+            local tx,ty,tw,th=unpack(car.tank)
+            place("tank_glow_0"..(math.floor(s.time*4)%4),tx,ty,tw,th,"arena")
+        end
+    end
+end
+
 local function render(self,alpha)
     self.used=0
     local s=self.run
@@ -926,12 +1014,7 @@ local function render(self,alpha)
     elseif s.arena==2 then
         render_alley(self,s)
     elseif s.arena==3 then
-        local section=1254
-        local by=math.floor(self.view_y/section+0.5)
-        for iy=by-1,by+1 do
-            paint(self,CX-self.view_x,CY+iy*section-self.view_y,706,section,
-                GROUND_TINT,"arena_design_express",nil,"floor","design_express")
-        end
+        render_express(self,s)
     elseif s.arena==4 then
         local section=1600
         local bx=math.floor(self.view_x/section+0.5)
@@ -1027,6 +1110,7 @@ local function render(self,alpha)
     for _,u in ipairs(s.enemies) do
         local x,y=CX+mix(u.px,u.x,alpha)-self.view_x,CY+mix(u.py,u.y,alpha)-self.view_y
         local boss_skin=dock_bosses.skin(s.arena,u.kind,u.elite)
+        local express_skin=express_enemies.skin(s.arena,u.kind)
         local skin=s.arena==1 and dock_enemies.skins[u.kind]
         local side=u.kind==6 and 132 or u.elite and 106 or u.kind==1 and 78 or u.kind==2 and 84 or 92
         local foot_y=y-14
@@ -1035,6 +1119,8 @@ local function render(self,alpha)
         if boss_skin then
             side=boss_skin.size
             foot_y=y-boss_skin.foot_drop
+        elseif express_skin then
+            side=express_skin.width*(u.elite and 1.17 or 1)
         elseif skin then
             side=skin.size*(u.elite and 1.17 or 1)
             foot_y=y-11
@@ -1048,6 +1134,13 @@ local function render(self,alpha)
             local art,flipped=dock_bosses.pose(boss_skin,u,s.time)
             local tint=(u.flash or 0)>0 and TEAL or NEUTRAL
             paint(self,x,foot_y+boss_skin.center_above_foot,side,side,tint,art,nil,"arena","dock_bosses",nil,flipped)
+        elseif express_skin then
+            local tint=(u.flash or 0)>0 and TEAL or NEUTRAL
+            if u.spawn_until and u.spawn_until>s.time then
+                local opacity=1-(u.spawn_until-s.time)*.48/data.spawn_waves.spawn_warmup
+                tint=vmath.vector4(tint.x,tint.y,tint.z,math.max(.5,opacity))
+            end
+            paint_express_enemy(self,express_skin,u,x,foot_y,tint,s.time)
         elseif skin then
             local frame=dock_enemies.frame(skin,u,s.time)
             local art,flipped
@@ -1100,8 +1193,12 @@ local function render(self,alpha)
     for _,p in ipairs(s.enemy_shots) do
         local x,y=CX+mix(p.px,p.x,alpha)-self.view_x,CY+mix(p.py,p.y,alpha)-self.view_y
         local angle=math.deg(math.atan2(p.vy,p.vx))
-        local art=p.kind=="arc" and "enemy_arc" or "enemy_bolt"
-        paint(self,x,y,46,p.radius*2+7,NEUTRAL,art,angle,"danger","arsenal")
+        if p.kind=="cinders" then
+            paint(self,x,y,34,p.radius*2+4,NEUTRAL,"vfx_furnace",angle,"danger","vfx")
+        else
+            local art=p.kind=="arc" and "enemy_arc" or "enemy_bolt"
+            paint(self,x,y,46,p.radius*2+7,NEUTRAL,art,angle,"danger","arsenal")
+        end
     end
     for _,h in ipairs(s.hazards) do render_hazard(self,s,h) end
     local amount,radius=run.disks(s)
@@ -1204,12 +1301,15 @@ local function render(self,alpha)
             local progress=1-e.life/e.total
             if e.foe then
                 local boss_skin=dock_bosses.skin(s.arena,e.foe,e.elite)
+                local express_skin=express_enemies.skin(s.arena,e.foe)
                 local skin=s.arena==1 and dock_enemies.skins[e.foe]
                 if boss_skin then
                     local art,flipped=dock_bosses.idle(boss_skin,e)
                     local center=y-boss_skin.foot_drop+boss_skin.center_above_foot-progress*6
                     paint(self,x,center,boss_skin.size,boss_skin.size,vmath.vector4(1,.75,.49,1-progress),
                         art,nil,"arena","dock_bosses",nil,flipped)
+                elseif express_skin then
+                    paint_express_enemy(self,express_skin,e,x,y-14-progress*6,vmath.vector4(1,.75,.49,1-progress))
                 elseif skin then
                     local side=skin.size*(e.elite and 1.17 or 1)
                     local art,flipped=skin[7],(e.facing_x or -1)>0 and not skin.fixed

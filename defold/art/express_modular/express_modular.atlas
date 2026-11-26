@@ -1,0 +1,38 @@
+images { image: "/art/express_modular/png/side_city.png" }
+images { image: "/art/express_modular/png/side_bridge.png" }
+images { image: "/art/express_modular/png/side_forest.png" }
+images { image: "/art/express_modular/png/car_runner_repeat.png" }
+images { image: "/art/express_modular/png/car_deck_steel.png" }
+images { image: "/art/express_modular/png/car_deck_wood.png" }
+images { image: "/art/express_modular/png/runner_end_north.png" }
+images { image: "/art/express_modular/png/runner_end_south.png" }
+images { image: "/art/express_modular/png/car_chassis.png" }
+images { image: "/art/express_modular/png/wall_left.png" }
+images { image: "/art/express_modular/png/wall_right.png" }
+images { image: "/art/express_modular/png/end_north.png" }
+images { image: "/art/express_modular/png/end_south.png" }
+images { image: "/art/express_modular/png/coupler_buffers.png" }
+images { image: "/art/express_modular/png/gangway_deck.png" }
+images { image: "/art/express_modular/png/gangway_rail_left.png" }
+images { image: "/art/express_modular/png/gangway_rail_right.png" }
+images { image: "/art/express_modular/png/window_glow.png" }
+images { image: "/art/express_modular/png/lamp_glow.png" }
+images { image: "/art/express_modular/png/tank_glow_00.png" }
+images { image: "/art/express_modular/png/steam_00.png" }
+images { image: "/art/express_modular/png/tank_glow_01.png" }
+images { image: "/art/express_modular/png/steam_01.png" }
+images { image: "/art/express_modular/png/tank_glow_02.png" }
+images { image: "/art/express_modular/png/steam_02.png" }
+images { image: "/art/express_modular/png/tank_glow_03.png" }
+images { image: "/art/express_modular/png/steam_03.png" }
+images { image: "/art/express_modular/png/seat_left.png" }
+images { image: "/art/express_modular/png/seat_right.png" }
+images { image: "/art/express_modular/png/crate_stack.png" }
+images { image: "/art/express_modular/png/netted_crates.png" }
+images { image: "/art/express_modular/png/tank_pipework.png" }
+images { image: "/art/express_modular/png/steam_grate.png" }
+images { image: "/art/express_modular/png/wall_lamp.png" }
+images { image: "/art/express_modular/png/window.png" }
+margin: 1
+extrude_borders: 2
+inner_padding: 1

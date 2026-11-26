@@ -1,4 +1,12 @@
 path_settings {
+  path: "/art/express_modular/express_modular.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
+  path: "/art/express_enemies.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
   path: "/art/menu.atlas"
   profile: "Pixel Art"
 }

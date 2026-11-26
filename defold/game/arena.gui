@@ -5,13 +5,11 @@ fonts { name: "upgrade_title" font: "/game/serif_bold.font" }
 textures { name: "sprites" texture: "/art/sprites.atlas" }
 textures { name: "foundry" texture: "/art/arena_foundry.atlas" }
 textures { name: "channels" texture: "/art/arena_channels.atlas" }
-textures { name: "express" texture: "/art/arena_express.atlas" }
 textures { name: "bastion" texture: "/art/arena_bastion.atlas" }
 textures { name: "vfx" texture: "/art/vfx.atlas" }
 textures { name: "arsenal" texture: "/art/arsenal.atlas" }
 textures { name: "foes_1" texture: "/art/foes_1.atlas" }
 textures { name: "foes_2" texture: "/art/foes_2.atlas" }
-textures { name: "foes_3" texture: "/art/foes_3.atlas" }
 textures { name: "foes_4" texture: "/art/foes_4.atlas" }
 textures { name: "dock_steam" texture: "/art/dock_steam.atlas" }
 textures { name: "dock_sectors" texture: "/art/dock_sectors.atlas" }
@@ -20,7 +18,8 @@ textures { name: "dock_bosses" texture: "/art/dock_bosses.atlas" }
 textures { name: "alley_props" texture: "/art/alley_props.atlas" }
 textures { name: "alley_surfaces" texture: "/art/alley_surfaces.atlas" }
 textures { name: "elite_chest" texture: "/art/elite_chest.atlas" }
-textures { name: "design_express" texture: "/art/arena_design_express.atlas" }
+textures { name: "express_modular" texture: "/art/express_modular/express_modular.atlas" }
+textures { name: "express_enemies" texture: "/art/express_enemies.atlas" }
 textures { name: "design_bastion" texture: "/art/arena_design_bastion.atlas" }
 textures { name: "ui" texture: "/art/ui.atlas" }
 textures { name: "menu_art" texture: "/art/menu.atlas" }

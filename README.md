@@ -26,4 +26,4 @@
 - [Экспорт Android](https://docs.godotengine.org/en/4.6/tutorials/export/exporting_for_android.html)
 - [Экспорт iOS](https://docs.godotengine.org/en/4.6/tutorials/export/exporting_for_ios.html)
 
-Текущая Android-версия **0.25.7** собрана на Defold 1.14.1. Проект открывается из [`defold/game.project`](defold/game.project). История обновлений, запуск и сборка описаны в [документации Defold-проекта](defold/README.md).
+Текущая Android-версия **0.25.23** собрана на Defold 1.14.1. Проект открывается из [`defold/game.project`](defold/game.project). История обновлений, запуск и сборка описаны в [документации Defold-проекта](defold/README.md).
