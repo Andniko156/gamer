@@ -5,6 +5,7 @@ local dock_stream = require "game.dock_stream"
 local dock_enemies = require "game.dock_enemies"
 local dock_bosses = require "game.dock_bosses"
 local express_enemies = require "game.express_enemies"
+local alley_enemies = require "game.alley_enemies"
 local alley = require "game.alley"
 local express = require "game.express"
 
@@ -813,10 +814,11 @@ local function foe_sprite(arena,kind,state,frame)
     return "a"..arena.."_foe_"..kind.."_"..state.."_"..frame, "foes_"..arena
 end
 
-local function paint_express_enemy(self, skin, u, x, foot_y, tint, time)
+local function paint_directional_enemy(self, roster, skin, u, x, foot_y, tint, time)
     local scale = u.elite and 1.17 or 1
+    local art, flipped = roster.pose(skin,u,time)
     paint(self,x,foot_y+skin.rise*scale,skin.width*scale,skin.height*scale,tint,
-        express_enemies.pose(skin,u,time),nil,"arena","express_enemies")
+        art,nil,"arena",roster.atlas,nil,flipped)
 end
 
 local ALLEY_CURB=vmath.vector4(.49,.43,.33,1)
@@ -1107,10 +1109,11 @@ local function render(self,alpha)
             end
         end
     end
+    local directional_roster=s.arena==2 and alley_enemies or express_enemies
     for _,u in ipairs(s.enemies) do
         local x,y=CX+mix(u.px,u.x,alpha)-self.view_x,CY+mix(u.py,u.y,alpha)-self.view_y
         local boss_skin=dock_bosses.skin(s.arena,u.kind,u.elite)
-        local express_skin=express_enemies.skin(s.arena,u.kind)
+        local directional_skin=directional_roster.skin(s.arena,u.kind)
         local skin=s.arena==1 and dock_enemies.skins[u.kind]
         local side=u.kind==6 and 132 or u.elite and 106 or u.kind==1 and 78 or u.kind==2 and 84 or 92
         local foot_y=y-14
@@ -1119,8 +1122,8 @@ local function render(self,alpha)
         if boss_skin then
             side=boss_skin.size
             foot_y=y-boss_skin.foot_drop
-        elseif express_skin then
-            side=express_skin.width*(u.elite and 1.17 or 1)
+        elseif directional_skin then
+            side=directional_skin.width*(u.elite and 1.17 or 1)
         elseif skin then
             side=skin.size*(u.elite and 1.17 or 1)
             foot_y=y-11
@@ -1134,13 +1137,13 @@ local function render(self,alpha)
             local art,flipped=dock_bosses.pose(boss_skin,u,s.time)
             local tint=(u.flash or 0)>0 and TEAL or NEUTRAL
             paint(self,x,foot_y+boss_skin.center_above_foot,side,side,tint,art,nil,"arena","dock_bosses",nil,flipped)
-        elseif express_skin then
+        elseif directional_skin then
             local tint=(u.flash or 0)>0 and TEAL or NEUTRAL
             if u.spawn_until and u.spawn_until>s.time then
                 local opacity=1-(u.spawn_until-s.time)*.48/data.spawn_waves.spawn_warmup
                 tint=vmath.vector4(tint.x,tint.y,tint.z,math.max(.5,opacity))
             end
-            paint_express_enemy(self,express_skin,u,x,foot_y,tint,s.time)
+            paint_directional_enemy(self,directional_roster,directional_skin,u,x,foot_y,tint,s.time)
         elseif skin then
             local frame=dock_enemies.frame(skin,u,s.time)
             local art,flipped
@@ -1301,15 +1304,16 @@ local function render(self,alpha)
             local progress=1-e.life/e.total
             if e.foe then
                 local boss_skin=dock_bosses.skin(s.arena,e.foe,e.elite)
-                local express_skin=express_enemies.skin(s.arena,e.foe)
+                local directional_skin=directional_roster.skin(s.arena,e.foe)
                 local skin=s.arena==1 and dock_enemies.skins[e.foe]
                 if boss_skin then
                     local art,flipped=dock_bosses.idle(boss_skin,e)
                     local center=y-boss_skin.foot_drop+boss_skin.center_above_foot-progress*6
                     paint(self,x,center,boss_skin.size,boss_skin.size,vmath.vector4(1,.75,.49,1-progress),
                         art,nil,"arena","dock_bosses",nil,flipped)
-                elseif express_skin then
-                    paint_express_enemy(self,express_skin,e,x,y-14-progress*6,vmath.vector4(1,.75,.49,1-progress))
+                elseif directional_skin then
+                    paint_directional_enemy(self,directional_roster,directional_skin,e,x,y-14-progress*6,
+                        vmath.vector4(1,.75,.49,1-progress))
                 elseif skin then
                     local side=skin.size*(e.elite and 1.17 or 1)
                     local art,flipped=skin[7],(e.facing_x or -1)>0 and not skin.fixed

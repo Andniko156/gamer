@@ -62,7 +62,7 @@ end
 
 local function face_target(arena,u,dx,dy)
     local skin=arena==1 and dock_enemies.skins[u.kind]
-    if arena==3 or arena==1 and (u.kind==6 or skin and skin.rear) then
+    if arena==2 or arena==3 or arena==1 and (u.kind==6 or skin and skin.rear) then
         dock_enemies.look_at(u,dx,dy)
     end
 end

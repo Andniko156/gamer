@@ -7,6 +7,10 @@ path_settings {
   profile: "Pixel Art"
 }
 path_settings {
+  path: "/art/alley_enemies/poses.tilesource"
+  profile: "Pixel Art"
+}
+path_settings {
   path: "/art/menu.atlas"
   profile: "Pixel Art"
 }

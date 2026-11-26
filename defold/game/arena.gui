@@ -9,7 +9,7 @@ textures { name: "bastion" texture: "/art/arena_bastion.atlas" }
 textures { name: "vfx" texture: "/art/vfx.atlas" }
 textures { name: "arsenal" texture: "/art/arsenal.atlas" }
 textures { name: "foes_1" texture: "/art/foes_1.atlas" }
-textures { name: "foes_2" texture: "/art/foes_2.atlas" }
+textures { name: "alley_enemies" texture: "/art/alley_enemies/poses.tilesource" }
 textures { name: "foes_4" texture: "/art/foes_4.atlas" }
 textures { name: "dock_steam" texture: "/art/dock_steam.atlas" }
 textures { name: "dock_sectors" texture: "/art/dock_sectors.atlas" }

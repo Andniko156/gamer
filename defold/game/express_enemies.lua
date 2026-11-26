@@ -1,6 +1,6 @@
 local pose_frame = require("game.dock_enemies").frame
 
-local M = {}
+local M = { atlas="express_enemies" }
 local skins = {}
 local widths = {100, 100, 104, 100, 98, 128, 106, 102, 114, 104}
 local rates = {8, 11, 7, 8, 9, 7, 7, 9, 6, 7}
