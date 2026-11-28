@@ -110,8 +110,8 @@ end
 for stage=1,4 do
     local history={}
     for index,expected in ipairs(data.boss_patterns[stage]) do
-        local s,u=arena(4,6,115,0)
-        s.arena=stage
+        local s,u=arena(4,6,115,0,stage)
+        u.y,u.py=s.y,s.y
         u.pattern_index,u.interval=index-1,0
         run.step(s,dt,0,0)
         assert(u.warning and u.pattern==expected and not history[u.pattern])

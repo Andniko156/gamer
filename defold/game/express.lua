@@ -57,6 +57,47 @@ function M.blocked(x,y,radius)
     return false
 end
 
+-- Trace the center of a direct shot against the same slabs and furniture
+-- footprints that bound the walkable deck. The coupling itself is open.
+local function segment_entry(x,y,dx,dy,left,right,bottom,top)
+    if dx==0 and (x<=left or x>=right) or dy==0 and (y<=bottom or y>=top) then
+        return 1
+    end
+    local x0,x1,y0,y1=0,1,0,1
+    if dx~=0 then
+        x0,x1=(left-x)/dx,(right-x)/dx
+        if x0>x1 then x0,x1=x1,x0 end
+    end
+    if dy~=0 then
+        y0,y1=(bottom-y)/dy,(top-y)/dy
+        if y0>y1 then y0,y1=y1,y0 end
+    end
+    local enter=max(0,x0,y0)
+    return enter<min(1,x1,y1) and enter or 1
+end
+
+local function side_entry(x,y,dx,dy,half,bottom,top)
+    return min(segment_entry(x,y,dx,dy,-math.huge,-half,bottom,top),
+        segment_entry(x,y,dx,dy,half,math.huge,bottom,top))
+end
+
+function M.projectile_limit(x,y,dx,dy)
+    local limit=1
+    for row=floor(min(y,y+dy)/M.period),floor(max(y,y+dy)/M.period) do
+        local bottom=row*M.period
+        local front,back=bottom+M.end_depth,bottom+M.height-M.end_depth
+        limit=min(limit,
+            side_entry(x,y,dx,dy,M.opening/2,bottom,front),
+            side_entry(x,y,dx,dy,M.width/2-M.wall,front,back),
+            side_entry(x,y,dx,dy,M.opening/2,back,bottom+M.period))
+        for _,solid in ipairs(M.car(row).solids) do
+            limit=min(limit,segment_entry(x,y,dx,dy,solid[1],solid[2],
+                bottom+solid[3],bottom+solid[4]))
+        end
+    end
+    return limit
+end
+
 function M.floor_position(x,y,radius)
     local z=y%M.period
     local limit=half_opening(z,radius)-radius

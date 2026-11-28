@@ -415,12 +415,20 @@ local function vents(s)
     end
 end
 
-local function closest(s,x,y,radius,seen)
+local function shot_limit(s,x,y,dx,dy)
+    if s.arena==3 then return express.projectile_limit(x,y,dx,dy) end
+    return 1
+end
+
+local function closest(s,x,y,radius,seen,direct)
     local best,target=radius*radius,nil
     for _, u in ipairs(s.enemies) do
         local dx,dy=u.x-x,u.y-y
         local squared=dx*dx+dy*dy
-        if u.hp>0 and squared<best and (not seen or not seen[u]) then target,best=u,squared end
+        if u.hp>0 and squared<best and (not seen or not seen[u])
+            and (not direct or shot_limit(s,x,y,dx,dy)==1) then
+            target,best=u,squared
+        end
     end
     return target
 end
@@ -442,6 +450,10 @@ function M.disks(s)
         (s.evolved[5] and 39 or rank>=2 and 35 or 30)*(1+s.artifact[3]*0.07)
 end
 
+function M.disk_offset(time,index,amount,radius)
+    local angle=time*5+index*tau/amount
+    return cos(angle)*radius,sin(angle)*radius,angle
+end
 
 local function attack(s,dt)
     for k, rank in ipairs(s.weapon) do
@@ -449,7 +461,7 @@ local function attack(s,dt)
         if rank>0 and (k==5 or s.cooldown[k]<=0) then
             local area=(s.hero==3 and 1.22 or 1)*(1+s.artifact[3]*0.07)
             local evo=s.evolved[k]
-            local target=closest(s,s.x,s.y,k==1 and 340 or 240*area)
+            local target=closest(s,s.x,s.y,k==1 and 340 or 240*area,nil,s.arena==3 and (k==1 or k==6))
             local recharge
             if k==1 and target then
                 local a=math.atan2(target.y-s.y,target.x-s.x)
@@ -503,10 +515,10 @@ local function attack(s,dt)
             elseif k==5 then
                 local amount,radius=M.disks(s)
                 for i=1,amount do
-                    local a=s.time*5+i*tau/amount
-                    local x,y=s.x+cos(a)*radius,s.y+sin(a)*radius
-                    local previous=(s.time-dt)*5+i*tau/amount
-                    local px,py=s.px+cos(previous)*radius,s.py+sin(previous)*radius
+                    local ox,oy=M.disk_offset(s.time,i,amount,radius)
+                    local x,y=s.x+ox,s.y+oy
+                    local prev_x,prev_y=M.disk_offset(s.time-dt,i,amount,radius)
+                    local px,py=s.px+prev_x,s.py+prev_y
                     local vx,vy=x-px,y-py
                     for _,u in ipairs(s.enemies) do
                         local dx,dy=u.x-px,u.y-py
@@ -565,33 +577,39 @@ local function shots(s,dt)
         local p=s.shots[i]
         p.px,p.py=p.x,p.y
         local dx,dy=p.vx*dt,p.vy*dt
-        p.x,p.y,p.life=p.x+dx,p.y+dy,p.life-dt
+        local limit=shot_limit(s,p.x,p.y,dx,dy)
+        p.x,p.y,p.life=p.x+dx*limit,p.y+dy*limit,p.life-dt
+        local length_squared=max(.0001,dx*dx+dy*dy)
         local candidates={}
         for _,u in ipairs(s.enemies) do
             if u.hp>0 and not p.hit[u] then
                 local ux,uy=u.x-p.px,u.y-p.py
-                local f=max(0,min(1,(ux*dx+uy*dy)/(dx*dx+dy*dy)))
-                if (ux-dx*f)^2+(uy-dy*f)^2<(d.foes[u.kind][4]+3)^2 then
+                local f=max(0,min(1,(ux*dx+uy*dy)/length_squared))
+                if (limit==1 or f<limit) and (ux-dx*f)^2+(uy-dy*f)^2<(d.foes[u.kind][4]+3)^2 then
                     candidates[#candidates+1]={f=f,u=u}
                 end
             end
         end
         table.sort(candidates,function(a,b) return a.f<b.f end)
         for _, hit in ipairs(candidates) do
-            damage(s,hit.u,p.amount,p.weapon or 1)
-            if p.weapon==6 and s.evolved[6] then
-                local other=closest(s,hit.u.x,hit.u.y,90,{[hit.u]=true})
-                if other then
-                    local dx,dy=other.x-hit.u.x,other.y-hit.u.y
-                    damage(s,other,p.amount*0.35*(1+s.artifact[7]*0.10),6)
-                    effect(s,6,(hit.u.x+other.x)/2,(hit.u.y+other.y)/2,sqrt(dx*dx+dy*dy),math.atan2(dy,dx))
+            local unit=hit.u
+            if unit.hp>0 then
+                damage(s,unit,p.amount,p.weapon or 1)
+                if p.weapon==6 and s.evolved[6] then
+                    local other=closest(s,unit.x,unit.y,90,{[unit]=true})
+                    if other then
+                        local arc_x,arc_y=other.x-unit.x,other.y-unit.y
+                        damage(s,other,p.amount*0.35*(1+s.artifact[7]*0.10),6)
+                        effect(s,6,(unit.x+other.x)/2,(unit.y+other.y)/2,
+                            sqrt(arc_x*arc_x+arc_y*arc_y),math.atan2(arc_y,arc_x))
+                    end
                 end
+                p.hit[unit]=true
+                p.pierce=p.pierce-1
+                if p.pierce==0 then break end
             end
-            p.hit[hit.u]=true
-            p.pierce=p.pierce-1
-            if p.pierce==0 then break end
         end
-        if p.pierce==0 or p.life<=0 then table.remove(s.shots,i) end
+        if p.pierce==0 or p.life<=0 or limit<1 then table.remove(s.shots,i) end
     end
 end
 
@@ -601,72 +619,107 @@ local function arena_position(s,x,y)
     return x,y
 end
 
+-- Ordinary attacks leave room for one complete boss pattern. Boss patterns
+-- do not overlap: their zones and volleys expire before the next windup.
+local ordinary_hazard_limit, ordinary_shot_limit = 38, 38
+local boss_zone_reserve, boss_shot_reserve = 4, 5
+
+local function queue_hazard(s,h,boss)
+    local limit=ordinary_hazard_limit+(boss and boss_zone_reserve or 0)
+    if #s.hazards<limit then s.hazards[#s.hazards+1]=h end
+end
+
 local function hazard(s,kind,x,y,radius,delay,damage,options)
-    if #s.hazards>=38 then return end
     local h=options or {}
     h.kind,h.x,h.y,h.radius=kind,x,y,radius
     h.start,h.at,h.damage=s.time,s.time+delay,damage
-    s.hazards[#s.hazards+1]=h
+    queue_hazard(s,h)
 end
 
-local function shot(s,kind,x,y,angle,speed,width,damage,life)
-    if #s.enemy_shots>=38 then return end
-    s.enemy_shots[#s.enemy_shots+1]={kind=kind,x=x,y=y,px=x,py=y,
-        vx=cos(angle)*speed,vy=sin(angle)*speed,radius=width,damage=damage,life=life}
+local function volley(kind,x,y,angle,count,spacing,speed,width,damage)
+    return {kind=kind,x=x,y=y,angle=angle,count=count,spacing=spacing,
+        speed=speed,width=width,damage=damage,life=1.1}
 end
 
-local function spread(s,kind,x,y,angle,count,spacing,speed,width,damage)
-    for i=1,count do
-        shot(s,kind,x,y,angle+(i-(count+1)*.5)*spacing,speed,width,damage,1.1)
+function M.volley_ray(s,v,i)
+    local angle=v.angle+(i-(v.count+1)*.5)*v.spacing
+    local length=v.speed*v.life
+    return angle,length*shot_limit(s,v.x,v.y,cos(angle)*length,sin(angle)*length)
+end
+
+local function spread(s,v,boss)
+    local limit=ordinary_shot_limit+(boss and boss_shot_reserve or 0)
+    for i=1,min(v.count,limit-#s.enemy_shots) do
+        local angle=v.angle+(i-(v.count+1)*.5)*v.spacing
+        s.enemy_shots[#s.enemy_shots+1]={kind=v.kind,x=v.x,y=v.y,px=v.x,py=v.y,
+            vx=cos(angle)*v.speed,vy=sin(angle)*v.speed,radius=v.width,damage=v.damage,life=v.life}
     end
+end
+
+local function summon_position(s,x,y,angle)
+    local sx,sy=arena_position(s,x+cos(angle)*69,y+sin(angle)*69)
+    if s.arena==1 then sx,sy=dock_collision.nearby_floor(s.dock,sx,sy,12) end
+    return sx,sy
 end
 
 local function summon_warning(s,x,y,angle,amount,owner,kind)
     for i=1,amount do
-        local a=angle+(i-1)*tau/amount
-        local sx,sy=arena_position(s,x+cos(a)*69,y+sin(a)*69)
-        if s.arena==1 then sx,sy=dock_collision.nearby_floor(s.dock,sx,sy,12) end
-        hazard(s,"summon",sx,sy,16,.85,0,{owner=owner, unit=kind or (s.arena==2 and 10 or 1)})
+        local sx,sy=summon_position(s,x,y,angle+(i-1)*tau/amount)
+        hazard(s,"summon",sx,sy,16,.85,0,{owner=owner,unit=kind})
     end
 end
 
-local function boss_attack(s,u,enraged)
+local function boss_plan(s,u,enraged)
     local kind=u.pattern
-    local a=math.atan2(u.dash_y,u.dash_x)
+    local angle=math.atan2(u.dash_y,u.dash_x)
     local x,y=u.target_x,u.target_y
+    local cast={zones={}}
+    local function zone(id,zx,zy,radius,delay,damage,options)
+        local h=options or {}
+        h.kind,h.x,h.y,h.radius=id,zx,zy,radius
+        h.start,h.at,h.damage,h.owner=u.warning_started,u.warning+delay,damage,u
+        cast.zones[#cast.zones+1]=h
+    end
     if kind=="reactor" then
-        hazard(s,"reactor",x,y,u.attack_radius,0,36,{owner=u})
+        zone("reactor",x,y,u.attack_radius,0,36)
     elseif kind=="disc" then
-        hazard(s,"disc",x,y,u.attack_radius,0,30,{angle=a,half_arc=.92,owner=u})
+        zone("disc",x,y,u.attack_radius,0,30,{angle=angle,half_arc=.92})
     elseif kind=="floor" or kind=="bombs" or kind=="combo" then
         for i=1,kind=="combo" and 4 or 3 do
             local offset=(i-1)*30
-            local sx,sy=arena_position(s,x+cos(a)*offset,y+sin(a)*offset)
-            hazard(s,kind=="bombs" and "bomb" or "slam",sx,sy,33,.45+(i-1)*.34,
-                enraged and 29 or 23,{owner=u})
+            local sx,sy=arena_position(s,x+cos(angle)*offset,y+sin(angle)*offset)
+            zone(kind=="bombs" and "bomb" or "slam",sx,sy,33,.45+(i-1)*.34,enraged and 29 or 23,{order=i})
         end
-        if kind=="combo" then spread(s,"arc",u.x,u.y,a,3,.27,255,10,18) end
+        if kind=="combo" then cast.volley=volley("arc",u.x,u.y,angle,3,.27,255,10,18) end
     elseif kind=="summon" then
-        summon_warning(s,u.x,u.y,a,enraged and 4 or 3,u)
+        local amount=enraged and 4 or 3
+        for i=1,amount do
+            local sx,sy=summon_position(s,u.x,u.y,angle+(i-1)*tau/amount)
+            zone("summon",sx,sy,16,.85,0,{unit=s.arena==2 and 10 or 1})
+        end
     elseif kind=="arc" or kind=="cinders" then
-        spread(s,kind,u.x,u.y,a,kind=="cinders" and 3 or 5,kind=="cinders" and .14 or .30,300,11,24)
+        cast.volley=volley(kind,u.x,u.y,angle,kind=="cinders" and 3 or 5,kind=="cinders" and .14 or .30,300,11,24)
     elseif kind=="rotor" then
-        hazard(s,"rotor",x,y,43,.45,17,{owner=u, dx=cos(a),dy=sin(a), duration=2.25})
+        zone("rotor",x,y,43,.45,17,{dx=cos(angle),dy=sin(angle),duration=2.25})
     elseif kind=="furnace" then
-        hazard(s,"fire",x,y,u.attack_radius,0,32,{angle=a,half_arc=.67,owner=u,duration=.6})
+        zone("fire",x,y,u.attack_radius,0,32,{angle=angle,half_arc=.67,duration=.6})
     elseif kind=="storm" then
         for i=-1,1 do
-            local sx,sy=arena_position(s,x+cos(a+math.pi*.5)*i*62,y+sin(a+math.pi*.5)*i*62)
-            hazard(s,"shock",sx,sy,34,.4+abs(i)*.38,22,{owner=u})
+            local sx,sy=arena_position(s,x+cos(angle+math.pi*.5)*i*62,y+sin(angle+math.pi*.5)*i*62)
+            zone("shock",sx,sy,34,.4+abs(i)*.38,22,{order=1+abs(i)})
         end
     end
+    return cast
 end
 
 local function bosses(s,u,distance,ux,uy,enraged)
     if u.warning then
         if s.time<u.warning then return end
         u.warning=nil
-        boss_attack(s,u,enraged)
+        local cast=u.cast
+        for _,h in ipairs(cast.zones) do queue_hazard(s,h,true) end
+        if cast.volley then spread(s,cast.volley,true) end
+        u.cast=nil
         u.attack_until,u.recover_until=s.time+.23,s.time+.8
     elseif u.interval<=s.time and distance<260 then
         local patterns=d.boss_patterns[s.arena]
@@ -678,6 +731,7 @@ local function bosses(s,u,distance,ux,uy,enraged)
         u.target_x,u.target_y=close and u.x or s.x,close and u.y or s.y
         u.attack_radius=enraged and d.attacks.boss.enraged_radius or d.attacks.boss.radius
         u.dash_x,u.dash_y=ux,uy
+        u.cast=boss_plan(s,u,enraged)
     end
 end
 
@@ -771,7 +825,8 @@ local function enemy_move(s,u,dt)
             u.dash_until=s.time+d.attacks.ram.duration
             u.recover_until=u.dash_until+attack.recovery
         elseif attack.shots then
-            spread(s,role,u.x,u.y,math.atan2(u.dash_y,u.dash_x),attack.shots,.24,265,attack.width,attack.damage)
+            spread(s,u.volley)
+            u.volley=nil
         else
             hazard(s,role,u.target_x,u.target_y,attack.radius,0,attack.damage,
                 {owner=u, duration=(role=="slow" or role=="magnet") and 1.1 or nil})
@@ -783,6 +838,9 @@ local function enemy_move(s,u,dt)
         local reach=(role=="guard" or role=="bite") and 18 or s.arena==1 and role=="slam" and 26
         u.target_x,u.target_y=reach and u.x+ux*reach or s.x,reach and u.y+uy*reach or s.y
         u.attack_radius=attack.radius
+        if attack.shots then
+            u.volley=volley(role,u.x,u.y,math.atan2(uy,ux),attack.shots,.24,265,attack.width,attack.damage)
+        end
     end
 end
 
@@ -791,13 +849,14 @@ local function enemy_attacks(s,dt)
         local p=s.enemy_shots[i]
         p.px,p.py=p.x,p.y
         local dx,dy=p.vx*dt,p.vy*dt
-        p.x,p.y,p.life=p.x+dx,p.y+dy,p.life-dt
+        local limit=shot_limit(s,p.x,p.y,dx,dy)
+        p.x,p.y,p.life=p.x+dx*limit,p.y+dy*limit,p.life-dt
         local ox,oy=s.x-p.px,s.y-p.py
         local f=max(0,min(1,(ox*dx+oy*dy)/max(.0001,dx*dx+dy*dy)))
-        if (ox-dx*f)^2+(oy-dy*f)^2<(p.radius+6)^2 then
+        if (limit==1 or f<limit) and (ox-dx*f)^2+(oy-dy*f)^2<(p.radius+6)^2 then
             hurt(s,p.damage)
             table.remove(s.enemy_shots,i)
-        elseif p.life<=0 then table.remove(s.enemy_shots,i) end
+        elseif p.life<=0 or limit<1 then table.remove(s.enemy_shots,i) end
     end
     for i=#s.hazards,1,-1 do
         local h=s.hazards[i]

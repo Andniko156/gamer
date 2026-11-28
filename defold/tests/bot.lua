@@ -1,7 +1,7 @@
 local data = require "game.data"
 local run = require "game.run"
 
-local function simulate(hero, seed, arena, observe)
+local function simulate(hero, seed, arena, observe, steer)
     local s = run.new(hero, seed, nil, arena)
     assert(#s.enemies == data.spawn_waves.initial)
     for _=1,36050 do
@@ -34,6 +34,7 @@ local function simulate(hero, seed, arena, observe)
                 mx,my=mx+dx*weight,my+dy*weight
             end
         end
+        if steer then mx,my=steer(s,mx,my) end
         run.step(s,1/60,mx,my)
         if observe then observe(s) end
     end
