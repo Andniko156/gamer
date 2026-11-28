@@ -6,6 +6,7 @@ local function arena(hero,kind,x,y,stage)
     local s=run.new(hero,5,1,stage)
     s.enemies,s.weapon={}, {0,0,0,0,0}
     s.next_spawn=math.huge
+    if stage==4 then x,y=s.x+x,s.y+y end
     local u={kind=kind,x=x,y=y,px=x,py=y,hp=10000,max_hp=10000,interval=0}
     s.enemies={u}
     return s,u

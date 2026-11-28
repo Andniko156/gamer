@@ -25,7 +25,7 @@ textures { name: "bastion_enemies" texture: "/art/bastion_enemies/poses.tilesour
 textures { name: "ui" texture: "/art/ui.atlas" }
 textures { name: "menu_art" texture: "/art/menu.atlas" }
 material: "/builtins/materials/gui.material"
-max_nodes: 1200
+max_nodes: 2048
 adjust_reference: ADJUST_REFERENCE_LEGACY
 layers { name: "floor" }
 layers { name: "inlays" }

@@ -1,4 +1,5 @@
 local run=require "game.run"
+local data=require "game.data"
 local express=require "game.express"
 local dt=1/60
 
@@ -31,7 +32,7 @@ for _,direction in ipairs({1,-1}) do
         s.enemy_shots={{x=x,y=y2,px=x,py=y2,vx=0,vy=-direction*265,radius=10,damage=20,life=1}}
         for _=1,42 do run.step(s,dt,0,0) end
         assert(u.hp==(x==0 and 75 or 100) and #s.shots==0,"hero shot must respect the end wall")
-        assert(math.abs(s.hp-(x==0 and 83.6 or 100))<1e-6 and #s.enemy_shots==0,"enemy shot must respect the end wall")
+        assert(math.abs(s.hp-(x==0 and 100-20*data.balance.arena_damage[3]*data.balance.enemy_damage[1] or 100))<1e-6 and #s.enemy_shots==0,"enemy shot must respect the end wall")
     end
 end
 
@@ -95,7 +96,10 @@ do
     run.step(s,dt,0,0)
     assert(s.hp==s.max_hp)
     run.step(s,dt,0,0)
-    assert(s.hp==s.max_hp-22)
+    local p=s.pressure
+    local multipliers=data.balance.enemy_damage
+    local damage=22*(multipliers[1]+(multipliers[2]-multipliers[1])*p)
+    assert(math.abs(s.hp-(s.max_hp-damage))<1e-8)
 end
 
 do

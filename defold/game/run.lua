@@ -9,6 +9,10 @@ local M = {}
 local cos, sin, sqrt, floor, abs = math.cos, math.sin, math.sqrt, math.floor, math.abs
 local min, max, ceil = math.min, math.max, math.ceil
 local tau = 2 * math.pi
+local balance=d.balance
+local function ramp(values,pressure)
+    return values[1]+(values[2]-values[1])*pressure
+end
 local separation = {}
 for i,a in ipairs(d.foes) do
     separation[i]={}
@@ -73,7 +77,8 @@ end
 
 local function new_enemy(s, kind, x, y, elite)
     local stats = d.foes[kind]
-    local hp = stats[1] * (kind == 6 and 1 or 1 + s.time / 770) * (elite and 2.5 or 1)
+    local scale=kind==6 and balance.boss_health or (1+s.time/770)*ramp(balance.enemy_health,s.pressure)
+    local hp=stats[1]*scale*(elite and 2.5 or 1)
     return {kind=kind, x=x, y=y, hp=hp, elite=elite, max_hp=hp,
         interval=s.time+1.3+random(s)*1.6}
 end
@@ -135,7 +140,7 @@ function M.new(hero, seed, doctrine, arena, view_padding)
     arena=arena or 1
     local opening=d.spawn_waves.initial
     local s = {
-        hero=hero, seed=seed % 2147483646 + 1, doctrine=doctrine or 1, hp=hp, max_hp=hp, time=0,
+        hero=hero, seed=seed % 2147483646 + 1, doctrine=doctrine or 1, hp=hp, max_hp=hp, time=0,pressure=0,
         x=0,y=0,px=0,py=0, dir_x=1,dir_y=0, wave=1, level=1,xp=0,need=16,kills=0,
         separation_grid={},free_buckets={},enemies={},shots={},enemy_shots={},hazards={},loot={},effects={},weapon={0,0,0,0,0,0,0,0}, artifact={0,0,0,0,0,0,0,0,0},
         evolved={},cooldown={0,0,0,0,0,0,0,0},damage={}, banned={}, rerolls=2, banishes=1,
@@ -157,10 +162,12 @@ function M.new(hero, seed, doctrine, arena, view_padding)
     return s
 end
 
-local function hurt(s, amount)
+local function hurt(s, amount,environment)
     if s.invincible > 0 then return end
+    local damage_scale=balance.arena_damage[s.arena]
+        *(environment and 1 or ramp(balance.enemy_damage,s.pressure))
     s.hp = s.hp - amount * (s.hero==4 and 0.76 or 1) * (1-s.artifact[4]*0.07)
-        * (s.arena==2 and 0.60 or s.arena==3 and 0.82 or 1)
+        * damage_scale
         * (s.doctrine == 3 and 0.86 or s.doctrine == 2 and 1.10 or 1)
     s.invincible = 0.65
 end
@@ -178,8 +185,12 @@ end
 local function damage(s,u,amount,weapon)
     if u.hp <= 0 then return end
     local exposed=u.kind==6 and u.recover_until and u.recover_until>s.time
+    local rank=max(1,s.weapon[weapon])
+    local reduction=s.evolved[weapon] and balance.weapon_damage_evolved
+        or 1+(balance.weapon_damage_max_rank-1)*(rank-1)/(d.weapon_max-1)
+    local weapon_scale=1+(reduction-1)*s.pressure
     local scaled=amount*(1+s.artifact[1]*0.08)*(s.hero==2 and 1.18 or 1)*(s.doctrine==2 and 1.12 or 1)
-        *(exposed and 1.20 or 1)
+        *(exposed and 1.20 or 1)*weapon_scale
     s.damage[weapon]=(s.damage[weapon] or 0)+min(u.hp,scaled)
     u.hp=u.hp-scaled
     u.flash=0.11
@@ -419,7 +430,7 @@ local function vents(s)
     if s.arena~=1 and s.arena~=2 then return end
     local state,cx,cy=M.vent_state(s,s.x,s.y)
     if state=="active" and (s.x-cx)^2+(s.y-cy)^2<d.vents.radius^2 then
-        hurt(s,s.arena==1 and 10 or 12)
+        hurt(s,s.arena==1 and 10 or 12,true)
     end
 end
 
@@ -751,6 +762,7 @@ local function enemy_move(s,u,dt)
     local ux,uy=dx/max(.001,distance),dy/max(.001,distance)
     local speed=stats[2]*(u.slow_until and u.slow_until>s.time and .66 or 1)
         *(s.frozen_until>s.time and .35 or 1)
+        *(role=="boss" and balance.boss_speed or ramp(balance.enemy_speed,s.pressure))
     local enraged=role=="boss" and u.hp<u.max_hp*.45
     if enraged then speed=speed*1.24 end
     local recovering=u.recover_until and s.time<u.recover_until
@@ -1036,6 +1048,7 @@ function M.step(s,dt,mx,my)
     if s.mode~="run" then return end
     s.px,s.py=s.x,s.y
     s.time=min(d.duration,s.time+dt)
+    s.pressure=max(0,min(1,(s.time-balance.ramp_start)/(balance.ramp_end-balance.ramp_start)))
     local magnitude=sqrt(mx*mx+my*my)
     s.moving=magnitude>0.06
     if s.moving then

@@ -4,8 +4,15 @@ return {
     enemy_entry_padding = 96,
     spawn_waves = {
         initial = 10, growth = 1.5,
-        combat_limit = 80, outer_distance = 520, update_interval = .25,
+        combat_limit = 200, outer_distance = 520, update_interval = .25,
         nearby_range = 285, spawn_warmup = .45,
+    },
+    balance = {
+        ramp_start=180, ramp_end=540,
+        enemy_health={1,1.15}, enemy_speed={1,1.08}, enemy_damage={1,1.16},
+        boss_health=1.12, boss_speed=1.04,
+        arena_damage={1,.60,.82,1},
+        weapon_damage_max_rank=.92, weapon_damage_evolved=.88,
     },
     dock_spawn = {second_roster = {1,2,2,3,5}, turret_entry_padding = 56},
     crates = {first=35, interval=62, lifetime=85, radius=165},
