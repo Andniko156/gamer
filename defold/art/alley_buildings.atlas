@@ -1,0 +1,8 @@
+images { image: "/art/alley_buildings/house_workshop.png" }
+images { image: "/art/alley_buildings/house_pump.png" }
+images { image: "/art/alley_buildings/house_loading.png" }
+images { image: "/art/alley_buildings/side_gate.png" }
+images { image: "/art/alley_buildings/street_lamp_1.png" }
+images { image: "/art/alley_buildings/street_lamp_2.png" }
+margin: 1
+extrude_borders: 2

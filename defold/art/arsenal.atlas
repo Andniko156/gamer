@@ -1,0 +1,32 @@
+images { image: "/art/combat/rail.png" }
+images { image: "/art/combat/rail_evo.png" }
+images { image: "/art/combat/pendulum.png" }
+images { image: "/art/combat/pendulum_evo.png" }
+images { image: "/art/combat/sprayer.png" }
+images { image: "/art/combat/sprayer_evo.png" }
+images { image: "/art/combat/capacitor.png" }
+images { image: "/art/combat/chronometer.png" }
+images { image: "/art/combat/alchemist_heart.png" }
+images { image: "/art/combat/rail_0.png" }
+images { image: "/art/combat/rail_1.png" }
+images { image: "/art/combat/rail_2.png" }
+images { image: "/art/combat/rail_3.png" }
+images { image: "/art/combat/swing_0.png" }
+images { image: "/art/combat/swing_1.png" }
+images { image: "/art/combat/swing_2.png" }
+images { image: "/art/combat/swing_3.png" }
+images { image: "/art/combat/acid_0.png" }
+images { image: "/art/combat/acid_1.png" }
+images { image: "/art/combat/acid_2.png" }
+images { image: "/art/combat/acid_3.png" }
+images { image: "/art/combat/acid_4.png" }
+images { image: "/art/combat/acid_5.png" }
+images { image: "/art/combat/electric.png" }
+images { image: "/art/combat/clock.png" }
+images { image: "/art/combat/threat_ring.png" }
+images { image: "/art/combat/impact_ring.png" }
+images { image: "/art/combat/enemy_bolt.png" }
+images { image: "/art/combat/enemy_arc.png" }
+margin: 2
+extrude_borders: 2
+inner_padding: 2

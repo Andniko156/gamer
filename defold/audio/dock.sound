@@ -1,0 +1,4 @@
+sound: "/audio/dock.ogg"
+looping: 1
+group: "ambience"
+gain: 1.0

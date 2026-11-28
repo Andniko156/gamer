@@ -1,0 +1,11 @@
+[project]
+title = Latunnaya Noch Express Preview
+version = 0.25.23-express-preview
+
+[android]
+package = com.andniko.latunnayanoch.expresspreview
+version_code = 56
+
+[express_preview]
+unlock_heroes = 1
+start_arena = 3

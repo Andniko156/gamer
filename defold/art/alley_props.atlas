@@ -1,0 +1,7 @@
+images { image: "/art/alley/wet_patch.png" }
+images { image: "/art/alley/wet_crescent.png" }
+images { image: "/art/alley/access_cover.png" }
+images { image: "/art/alley/stone_wear.png" }
+margin: 0
+extrude_borders: 2
+inner_padding: 2

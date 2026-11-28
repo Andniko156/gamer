@@ -1,0 +1,1915 @@
+local run = require "game.run"
+local audio = require "game.audio"
+local data = require "game.data"
+local dock_art = require "game.dock_art"
+local dock_stream = require "game.dock_stream"
+local dock_enemies = require "game.dock_enemies"
+local dock_bosses = require "game.dock_bosses"
+local express_enemies = require "game.express_enemies"
+local alley_enemies = require "game.alley_enemies"
+local alley = require "game.alley"
+local express = require "game.express"
+local bastion = require "game.bastion"
+local bastion_enemies = require "game.bastion_enemies"
+
+local WIDTH, HEIGHT = data.viewport.width, data.viewport.height
+local CX, CY = WIDTH/2, HEIGHT*data.viewport.hero_y
+local STEP = 1/60
+local GOLD = vmath.vector4(1,0.76,0.43,1)
+local INK = vmath.vector4(0.10,0.085,0.12,1)
+local PANEL = vmath.vector4(0.16,0.13,0.18,1)
+local TEAL = vmath.vector4(0.50,0.88,0.77,1)
+local WHITE = vmath.vector4(0.96,0.89,0.81,1)
+local RED = vmath.vector4(0.92,0.48,0.39,1)
+local DORMANT = vmath.vector4(0.24,0.28,0.27,1)
+local SHADOW = vmath.vector4(0.04,0.03,0.05,0.45)
+local NEUTRAL = vmath.vector4(1,1,1,1)
+local GROUND_TINT = vmath.vector4(.88,.88,.91,1)
+
+local function box(x,y,w,h,color)
+    local node=gui.new_box_node(vmath.vector3(x,y,0),vmath.vector3(w,h,0))
+    gui.set_color(node,color)
+    return node
+end
+
+local function label(x,y,text,size,color,font)
+    local n=gui.new_text_node(vmath.vector3(x,y,0),text)
+    gui.set_font(n,font or "hud")
+    gui.set_scale(n,vmath.vector3(size/24,size/24,1))
+    gui.set_color(n,color)
+    return n
+end
+
+local function image_node(x,y,w,h,atlas,id)
+    local n=box(x,y,w,h,NEUTRAL)
+    gui.set_texture(n,atlas)
+    gui.play_flipbook(n,id)
+    gui.set_size_mode(n,gui.SIZE_MODE_MANUAL)
+    gui.set_size(n,vmath.vector3(w,h,0))
+    return n
+end
+
+local function sprite(x,y,w,h,id)
+    return image_node(x,y,w,h,"sprites",id)
+end
+
+local function skin(x,y,w,h,id,atlas)
+    local n=image_node(x,y,w,h,atlas or "ui",id)
+    gui.set_slice9(n,atlas=="menu_art" and vmath.vector4(10,8,10,8) or vmath.vector4(16,14,16,14))
+    return n
+end
+
+local function remember(self,n)
+    gui.set_layer(n,"menu")
+    self.menu[#self.menu+1]=n
+    return n
+end
+
+local function control(self,x,y,w,h,name,action,primary)
+    local hit=remember(self,primary and skin(x,y,w,h,"ui_primary") or box(x,y,w,h,PANEL))
+    if not primary then remember(self,box(x,y+h*0.5-2,w-8,2,vmath.vector4(0.44,0.34,0.22,1))) end
+    if name~="" then remember(self,label(x,y,name,17,primary and INK or WHITE)) end
+    self.buttons[#self.buttons+1]={hit=hit,action=action}
+    return hit
+end
+
+local function menu_image(self,x,y,w,h,id)
+    return remember(self,image_node(x,y,w,h,"menu_art",id))
+end
+
+local function menu_plate(self,x,y,w,h,id,action)
+    local n=remember(self,skin(x,y,w,h,id,"menu_art"))
+    if action then self.buttons[#self.buttons+1]={hit=n,action=action} end
+    return n
+end
+
+local function left_label(self,x,y,value,size,color,max_width)
+    local n=remember(self,label(x,y,value,size,color))
+    gui.set_pivot(n,max_width and gui.PIVOT_NW or gui.PIVOT_W)
+    if max_width then
+        gui.set_size(n,vmath.vector3(max_width*24/size,0,0))
+        gui.set_line_break(n,true)
+    end
+    return n
+end
+
+local function clear_menu(self)
+    for i=#self.menu,1,-1 do gui.delete_node(self.menu[i]) end
+    self.menu,self.buttons={},{}
+    self.hangar_fx=nil
+    self.chest_scene=nil
+end
+
+local function modal_shade(self,opacity)
+    local node=remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(.02,.05,.06,opacity)))
+    gui.set_adjust_mode(node,gui.ADJUST_STRETCH)
+    gui.set_layer(node,"upgrade_shade")
+end
+
+local function save(self)
+    sys.save(sys.get_save_file("latunnaya_noch","profile"),self.profile)
+end
+
+local function allowed(self,i)
+    local p=self.profile
+    return self.preview_heroes or i==1 or (i==2 and (p.time or 0)>=45) or (i==3 and (p.level or 0)>=5)
+        or (i==4 and (p.kills or 0)>=100) or (i==5 and p.won)
+end
+
+local show_hangar, show_level, show_pause, show_build, show_intro, finish, start, show_sound_settings
+
+local function menu_floor(self)
+    local floor=box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0.60,0.60,0.60,1))
+    gui.set_texture(floor,"foundry")
+    gui.play_flipbook(floor,"arena_foundry")
+    gui.set_layer(floor,"floor")
+    self.menu[#self.menu+1]=floor
+end
+
+local function inventory_art(id,evolved)
+    return (evolved and "upgrade_evolved_" or "upgrade_item_")..id
+end
+
+local function item_sprite(x,y,size,id,evolved)
+    return image_node(x,y,size,size,"menu_art",inventory_art(id,evolved))
+end
+
+local function evolution_pair(id)
+    if id<=8 then return 8+data.evolution_artifact[id],data.evolutions[id] end
+    if id<=17 then
+        for weapon,artifact in ipairs(data.evolution_artifact) do
+            if artifact==id-8 then return weapon,data.evolutions[weapon] end
+        end
+    end
+end
+
+local function item_info(id)
+    local partner,result=evolution_pair(id)
+    local description=data.weapon_effects[id] or data.artifact_effects[id-8] or "Восстановление 30% здоровья."
+    local pair=partner and "Пара: "..run.item_name(partner).." → "..result or "Без эволюционной пары"
+    return description,pair
+end
+
+local function actor(self,name)
+    if self.actor_anim~=name then
+        gui.play_flipbook(self.actor,name)
+        self.actor_anim=name
+    end
+end
+
+local doctrine_names={"Полевой устав","Штурмовой устав","Караульный устав"}
+local doctrine_notes={"+16 к дальности сбора","+12% урона, +10% входящего","−14% входящего, −6% скорости"}
+local unlock_notes={"","Выжить 45 секунд","Достичь 5 уровня","Победить 100 машин","Победить Смотрителя"}
+local LOCKED = vmath.vector4(.49,.54,.53,1)
+local MENU_INK = vmath.vector4(.045,.09,.10,1)
+local MENU_DIM = vmath.vector4(.45,.44,.38,1)
+
+local function update_hangar_fx(self,dt)
+    local t=self.hangar_time+dt
+    self.hangar_time=t
+    local fx=self.hangar_fx
+    for i,n in ipairs(fx.lights) do
+        local pulse=math.sin(t*1.7+i*1.9)*.07+math.sin(t*3.1+i)*.035
+        gui.set_color(n,vmath.vector4(1,.63,.24,.31+pulse))
+    end
+    for i,n in ipairs(fx.steam) do
+        local age=math.min(1,((t+i*1.6)%4.8)/3.2)
+        local fade=math.sin(math.pi*age)^2
+        local sway=math.sin(age*5+i)*5*age
+        gui.set_position(n,vmath.vector3(305+49*age+sway,563+69*age,0))
+        gui.set_scale(n,vmath.vector3(.5+1.15*age,.54+.75*age,1))
+        gui.set_color(n,vmath.vector4(.80,.89,.89,.70*fade))
+    end
+    for i,n in ipairs(fx.sparks) do
+        local age=math.min(1,((t+i*2.7)%8.1)/1.45)
+        gui.set_position(n,vmath.vector3(303+6*i+(13+2*i)*age,553+(22+3*i)*age,0))
+        gui.set_color(n,vmath.vector4(1,.74,.36,.83*math.sin(math.pi*age)^2))
+    end
+end
+
+local function show_hangar_fx(self)
+    self.hangar_fx={
+        lights={
+            menu_image(self,86,629,94,92,"hangar_glow"),
+            menu_image(self,165,466,72,41,"hangar_glow"),
+            menu_image(self,272,466,72,41,"hangar_glow"),
+        },
+        steam={},
+        sparks={},
+    }
+    for i=1,3 do
+        self.hangar_fx.steam[i]=remember(self,image_node(305,563,44,37,"dock_steam","vent_steam_"..(i-1)))
+        self.hangar_fx.sparks[i]=menu_image(self,305,553,5+i,5+i,"hangar_glow")
+    end
+    update_hangar_fx(self,0)
+end
+
+local function hangar_selector(self,y,icon,caption,value,note,action)
+    menu_plate(self,CX,y,386,58,"plate_gold",action)
+    menu_image(self,65,y,62,40,icon)
+    remember(self,box(105,y,1,40,GOLD))
+    left_label(self,119,y+16,caption,12,GOLD)
+    left_label(self,119,y+(note and 0 or -5),value,17,WHITE)
+    if note then left_label(self,119,y-17,note,11,TEAL) end
+    remember(self,label(385,y,">",21,GOLD))
+end
+
+local LAUNCH_WIDTH,LAUNCH_HEIGHT=350,712
+local LAUNCH_END=5.05
+local LAUNCH_GLINTS={{150,88,0},{135,121,1.9},{171,157,3.8}}
+local LAUNCH_GATE={left=107,right=243,top=466,bottom=597,start=2.18,duration=1.42}
+local LAUNCH_GATE_CUES={{LAUNCH_GATE.start-.15,"latch"},{LAUNCH_GATE.start,"gate"},
+    {LAUNCH_GATE.start+LAUNCH_GATE.duration,"shut"}}
+local LAUNCH_BUTTON_Y=143
+
+local function launch_ease(t)
+    t=math.max(0,math.min(1,t))
+    return t*t*t*(t*(6*t-15)+10)
+end
+
+local function show_launch(self)
+    self.mode="launch_wait"
+    gui.set_enabled(self.actor,false)
+    local scene={time=0,idle=0,doors={},smoke={},glints={}}
+    self.launch_scene=scene
+    scene.factory=remember(self,image_node(CX,HEIGHT/2,WIDTH,HEIGHT,"launch_art","factory_shot"))
+    for i,id in ipairs({"left_leaf","right_leaf"}) do
+        scene.doors[i]=remember(self,image_node(0,0,1,1,"launch_art",id))
+    end
+    for i=1,12 do
+        scene.smoke[i]={
+            mist=menu_image(self,0,0,1,1,"hangar_glow"),
+            wisps=remember(self,image_node(0,0,1,1,"dock_steam","vent_steam_"..((i-1)%3))),
+        }
+    end
+    for i=1,#LAUNCH_GLINTS do
+        scene.glints[i]={
+            halo=menu_image(self,0,0,1,1,"hangar_glow"),
+            h=remember(self,box(0,0,1,1,NEUTRAL)),
+            v=remember(self,box(0,0,1,1,NEUTRAL)),
+        }
+    end
+    local first=#self.menu+1
+    control(self,CX,LAUNCH_BUTTON_Y,234,58,"ИГРАТЬ",function()
+        self.mode="launch_movie"
+        self.buttons={}
+    end,true)
+    scene.controls={}
+    for i=first,#self.menu do
+        local node=self.menu[i]
+        scene.controls[#scene.controls+1]={node=node,color=gui.get_color(node)}
+    end
+    scene.black=remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0,0,0,0)))
+    gui.set_adjust_mode(scene.black,gui.ADJUST_STRETCH)
+end
+
+local function update_launch(self,dt)
+    local scene=self.launch_scene
+    local previous=scene.time
+    if self.mode=="launch_movie" then scene.time=scene.time+dt end
+    scene.idle=scene.idle+dt
+    local t=scene.time
+    local descend=launch_ease((t-.08)/2.32)
+    local entry=launch_ease((t-2.95)/2.10)
+    local visible_w,visible_h=WIDTH+2*self.view_padding.x,HEIGHT+2*self.view_padding.y
+    local cover=math.max(visible_w/LAUNCH_WIDTH,visible_h/LAUNCH_HEIGHT)
+    local sky_scale=math.max(cover,visible_h/250)
+    local scale=sky_scale*(1-descend)+cover*(1.16*descend+5.36*entry)
+    local half_w,half_h=visible_w/(2*scale),visible_h/(2*scale)
+    local target_x=167+8*descend
+    local target_y=133+269*descend+142*entry
+    local camera_x=math.max(half_w,math.min(LAUNCH_WIDTH-half_w,target_x))
+    local camera_y=math.max(half_h,math.min(LAUNCH_HEIGHT-half_h,target_y))
+
+    local function place(node,x,y,w,h)
+        gui.set_position(node,vmath.vector3(CX+(x-camera_x)*scale,HEIGHT/2+(camera_y-y)*scale,0))
+        gui.set_size(node,vmath.vector3(w*scale,h*scale,0))
+    end
+    place(scene.factory,LAUNCH_WIDTH/2,LAUNCH_HEIGHT/2,LAUNCH_WIDTH,LAUNCH_HEIGHT)
+
+    for _,entry in ipairs(LAUNCH_GATE_CUES) do
+        if previous<entry[1] and t>=entry[1] then audio.play(self.audio,entry[2]) end
+    end
+    local gate=LAUNCH_GATE
+    local opening=launch_ease((t-gate.start)/gate.duration)
+    local angle=math.rad(88)*opening
+    local width=(gate.right-gate.left)*.5*math.cos(angle)/(1+.25*math.sin(angle))
+    local center_y=(gate.top+gate.bottom)*.5
+    local shade=1-.28*math.sin(angle)
+    place(scene.doors[1],gate.left+width*.5,center_y,width,gate.bottom-gate.top)
+    place(scene.doors[2],gate.right-width*.5,center_y,width,gate.bottom-gate.top)
+    for _,node in ipairs(scene.doors) do
+        gui.set_color(node,vmath.vector4(shade,shade,shade,1))
+    end
+
+    for i,puff in ipairs(scene.smoke) do
+        local age=((scene.idle/5.4)+(i-1)/#scene.smoke)%1
+        local drift=math.sin(i*1.8)*5*age+math.sin(age*7+i)*4*age
+        local opacity=launch_ease(age/.14)*(1-launch_ease((age-.48)/.52))
+        local x,y=175+35*age+drift,290-226*age
+        place(puff.mist,x,y,12+62*age,18+64*age)
+        place(puff.wisps,x+drift*.5,y,12+54*age,12+47*age)
+        gui.set_rotation(puff.wisps,vmath.vector3(0,0,24+math.sin(i*2.3)*34+30*age))
+        gui.set_color(puff.mist,vmath.vector4(.24,.43,.46,.40*opacity))
+        gui.set_color(puff.wisps,vmath.vector4(.43,.67,.70,.25*opacity))
+    end
+
+    for i,glint in ipairs(scene.glints) do
+        local mark=LAUNCH_GLINTS[i]
+        local age=((scene.idle+mark[3])%5.8)/1.56
+        local pulse=launch_ease(age/.28)*(1-launch_ease((age-.28)/.72))
+        local x,y=mark[1]+2*math.min(1,age),mark[2]-math.min(1,age)
+        place(glint.halo,x,y,17+pulse*6,17+pulse*6)
+        place(glint.h,x,y,2+pulse*5,.62)
+        place(glint.v,x,y,.62,2+pulse*6)
+        gui.set_color(glint.halo,vmath.vector4(.46,1,.95,.45*pulse))
+        local color=vmath.vector4(.75,1,.99,pulse*.72)
+        gui.set_color(glint.h,color)
+        gui.set_color(glint.v,color)
+    end
+
+    local button_alpha=1-launch_ease(t/.32)
+    for _,control in ipairs(scene.controls) do
+        local color=control.color
+        gui.set_color(control.node,vmath.vector4(color.x,color.y,color.z,color.w*button_alpha))
+    end
+    gui.set_color(scene.black,vmath.vector4(0,0,0,launch_ease((t-4.44)/.61)))
+    if t>=LAUNCH_END then
+        self.launch_scene=nil
+        show_hangar(self)
+        local black=remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0,0,0,1)))
+        gui.set_adjust_mode(black,gui.ADJUST_STRETCH)
+        self.launch_reveal=black
+        gui.animate(black,"color.w",0,gui.EASING_INOUTQUAD,.53,0,function()
+            gui.set_enabled(black,false)
+            self.launch_reveal=nil
+        end)
+    end
+end
+
+show_hangar=function(self)
+    clear_menu(self)
+    self.mode="hangar"
+    self.run=nil
+    dock_stream.hide(self.dock_stream)
+    gui.set_enabled(self.actor,false)
+    remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,MENU_INK))
+    menu_image(self,CX,HEIGHT-174,WIDTH,348,"hangar_backdrop")
+    show_hangar_fx(self)
+    menu_image(self,CX,713,257,73,"hangar_title")
+    remember(self,sprite(CX,551,112,112,data.heroes[self.hero][2].."_0"))
+    for i,hero in ipairs(data.heroes) do
+        local index=i
+        local x=64+(i-1)*76
+        local available=allowed(self,index)
+        menu_plate(self,x,381,64,64,i==self.hero and "plate_active" or "plate_dark",function()
+            self.hero=index
+            show_hangar(self)
+        end)
+        local portrait=menu_image(self,x,381,52,52,"portrait_"..hero[2])
+        if not available then
+            gui.set_color(portrait,LOCKED)
+            menu_image(self,x+20,362,13,16,"hangar_lock")
+        end
+    end
+    remember(self,label(CX,329,data.heroes[self.hero][1],23,WHITE))
+    remember(self,label(CX,304,data.weapons[self.hero],15,GOLD))
+    local can_start=allowed(self,self.hero)
+    if not can_start then remember(self,label(CX,283,unlock_notes[self.hero],12,WHITE)) end
+    hangar_selector(self,245,"hangar_doctrine","Устав",doctrine_names[self.doctrine],doctrine_notes[self.doctrine],function()
+        self.doctrine=self.doctrine%#doctrine_names+1
+        show_hangar(self)
+    end)
+    hangar_selector(self,178,"hangar_arena_"..self.arena,"Арена",data.arena_names[self.arena],nil,function()
+        self.arena=self.arena%#data.arena_names+1
+        show_hangar(self)
+    end)
+    if can_start then
+        local launch=remember(self,skin(CX,102,386,59,"ui_primary"))
+        remember(self,label(CX,102,"НАЧАТЬ ВЫЛАЗКУ",22,INK))
+        self.buttons[#self.buttons+1]={hit=launch,action=function()
+            if self.profile.tutorial_seen then start(self)
+            else show_intro(self,1,start) end
+        end}
+    end
+    control(self,119,44,184,39,"Как играть",function() show_intro(self,1) end)
+    control(self,313,44,184,39,"Настройки звука",function() show_sound_settings(self) end)
+end
+
+show_intro=function(self,page,done)
+    clear_menu(self)
+    self.mode="intro"
+    menu_floor(self)
+    local chapters={
+        {"01 · Двигайся","Веди палец по арене — герой идёт.","На компьютере · WASD или стрелки.",
+            "Оружие атакует автоматически."},
+        {"02 · Собирай","Побеждай машины и собирай опыт.","На новом уровне выбирай усиление.",
+            "Оружия и артефактов: по 4 слота."},
+        {"03 · Создай билд","Повышай оружие до VI ранга,","парный артефакт — до III ранга.",
+            "Эволюция появится из шкатулки элиты."},
+    }
+    local chapter=chapters[page]
+    remember(self,skin(CX,CY,400,488,"ui_panel"))
+    remember(self,label(CX,534,chapter[1],25,GOLD))
+    for i=2,4 do remember(self,label(CX,465-(i-2)*50,chapter[i],15,WHITE)) end
+    remember(self,label(CX,291,page.." / 3",14,TEAL))
+    local function finish_intro()
+        self.profile.tutorial_seen=true
+        save(self)
+        if done then done(self) else show_hangar(self) end
+    end
+    control(self,CX,224,320,52,page==3 and (done and "В бой" or "В ангар") or "Далее",function()
+        if page<3 then show_intro(self,page+1,done)
+        else finish_intro() end
+    end,true)
+    if page<3 then control(self,CX,159,320,38,"Пропустить",function()
+        finish_intro()
+    end) end
+end
+
+start=function(self)
+    clear_menu(self)
+    self.run_count=self.run_count+1
+    local seed=os.time()+(self.run_count-1)*104729
+    self.run=run.new(self.hero,seed,self.doctrine,self.arena,self.view_padding)
+    self.run.on_sound=function(state,kind,value,x,y)
+        audio.battle(self.audio,state,kind,value,x,y)
+    end
+    if self.arena==1 then
+        dock_stream.update(self.dock_stream,self.run.dock,self.run.x-CX,self.run.y-CY)
+    else
+        dock_stream.hide(self.dock_stream)
+    end
+    self.mode,self.remainder,self.drag,self.banish="run",0,nil,false
+    self.actor_anim=nil
+    self.perf={elapsed=0,frames=0,fps=0,lowest=math.huge,peak_enemies=0,peak_nodes=0}
+    actor(self,data.heroes[self.hero][2].."_0")
+    gui.set_enabled(self.actor,true)
+end
+
+local function upgrade_action(self,x,title,action)
+    local node=menu_image(self,x,184,156,40,"upgrade_button")
+    if action then self.buttons[#self.buttons+1]={hit=node,action=action}
+    else gui.set_color(node,DORMANT) end
+    remember(self,label(x,184,title,15,action and WHITE or MENU_DIM,"upgrade_title"))
+end
+
+local function fitted_text(self,x,y,value,size,max_width,color,font)
+    local width=resource.get_text_metrics(gui.get_font_resource(font),value).width
+    local node=remember(self,label(x,y,value,math.min(size,max_width*24/math.max(1,width)),color,font))
+    gui.set_pivot(node,gui.PIVOT_W)
+end
+
+show_level=function(self)
+    clear_menu(self)
+    self.mode="level"
+    self.drag=nil
+    local s=self.run
+    modal_shade(self,.30)
+    menu_image(self,CX,360,360,426,"upgrade_panel")
+    remember(self,label(CX,531,self.banish and "ИСКЛЮЧИТЬ ПРЕДМЕТ" or "ВЫБЕРИ УСИЛЕНИЕ",23,WHITE,"upgrade_title"))
+    for i,id in ipairs(s.options) do
+        local item=id
+        local is_weapon=id<=8
+        local is_artifact=id>8 and id<=17
+        local rank=is_weapon and s.weapon[id] or is_artifact and s.artifact[id-8] or nil
+        local accent=is_artifact and TEAL or GOLD
+        local theme=is_artifact and "teal" or "gold"
+        local y=449-(i-1)*95
+        local card=menu_image(self,CX,y,330,89,is_artifact and "upgrade_artifact" or "upgrade_weapon")
+        self.buttons[#self.buttons+1]={hit=card,action=function()
+            if run.choose(s,item,self.banish) then
+                if self.banish then self.banish=false;show_level(self)
+                else clear_menu(self);self.mode="run" end
+            end
+        end}
+        menu_image(self,106,y,74,74,inventory_art(id))
+        remember(self,box(153,y,1,68,accent))
+        local category=is_weapon and "ОРУЖИЕ" or is_artifact and "АРТЕФАКТ" or "ВОССТАНОВЛЕНИЕ"
+        local badge_width=is_weapon and 74 or is_artifact and 86 or 123
+        menu_image(self,165+badge_width/2,y+30,badge_width,14,"upgrade_badge_"..theme)
+        remember(self,label(165+badge_width/2,y+30,category,10,accent,"upgrade_text"))
+        if rank then
+            remember(self,label(332,y+30,(rank+1).."/"..(is_weapon and data.weapon_max or data.artifact_max),13,WHITE,"upgrade_text"))
+        end
+        fitted_text(self,165,y+14,run.item_name(id),16,194,WHITE,"upgrade_text")
+        remember(self,label(367,y+8,">",14,accent,"upgrade_text"))
+        local description=item_info(id)
+        left_label(self,165,y+3,description,11,WHITE,205)
+        local partner=evolution_pair(id)
+        if partner then
+            remember(self,box(264,y-22,198,1,vmath.vector4(.35,.29,.19,1)))
+            menu_image(self,178,y-32,25,17,"upgrade_badge_"..(partner<=8 and "gold" or "teal"))
+            menu_image(self,178,y-32,19,19,inventory_art(partner))
+            fitted_text(self,195,y-32,"Пара: "..run.item_name(partner),11,174,WHITE,"hud")
+        elseif is_artifact then
+            left_label(self,165,y-32,"Без эволюционной пары",11,TEAL)
+        end
+    end
+    upgrade_action(self,130,"Сменить · "..s.rerolls,s.rerolls>0 and function()
+        if run.reroll(s) then self.banish=false;show_level(self) end
+    end)
+    upgrade_action(self,302,self.banish and "Отмена" or "Исключить · "..s.banishes,s.banishes>0 and function()
+        self.banish=not self.banish
+        show_level(self)
+    end)
+end
+
+local CHEST_OPEN_TIME, REEL_STOP, REWARD_TIME = .40, 1.74, 1.94
+local REEL_PITCH, REEL_WINNER = 61, 17
+
+local function show_chest(self)
+    clear_menu(self)
+    self.mode,self.drag="chest",nil
+    local reward=self.run.chest_reward
+    local scene={reward=reward, elapsed=0, items={}, slots={}, frame=0}
+    self.chest_scene=scene
+    modal_shade(self,.52)
+    menu_image(self,CX,360,360,426,"upgrade_panel")
+    remember(self,label(CX,531,"СУНДУК ЭЛИТЫ",23,WHITE,"upgrade_title"))
+    scene.glow=menu_image(self,CX,419,205,155,"hangar_glow")
+    gui.set_enabled(scene.glow,false)
+    scene.chest=remember(self,image_node(CX,420,188,183.3,"elite_chest","elite_chest_00"))
+    scene.sparks={}
+    for i=1,7 do
+        local particle=remember(self,box(CX,424,2+i%2,2+i%2,GOLD))
+        scene.sparks[i]=particle
+        gui.set_enabled(particle,false)
+    end
+    local hit=menu_image(self,CX,191,156,40,"upgrade_button")
+    local caption=remember(self,label(CX,191,"Открыть",16,WHITE,"upgrade_title"))
+    self.buttons[1]={hit=hit,action=function()
+        if not scene.open then
+            scene.open=true
+            audio.play(self.audio,"latch")
+            self.buttons={}
+            gui.set_enabled(hit,false)
+            gui.set_enabled(caption,false)
+        elseif scene.revealed and run.claim_chest(self.run) then
+            self.remainder=0
+            if self.run.mode=="level" then audio.play(self.audio,"level");show_level(self)
+            else clear_menu(self);self.mode="run" end
+        end
+    end}
+    scene.claim={hit=hit,caption=caption,action=self.buttons[1]}
+    scene.reel=menu_image(self,CX,303,324,74,"upgrade_weapon")
+    scene.pointer=remember(self,image_node(CX,343,18,12,"elite_chest","chest_pointer"))
+    local clip=remember(self,box(CX,303,304,60,NEUTRAL))
+    gui.set_clipping_mode(clip,gui.CLIPPING_MODE_STENCIL)
+    gui.set_clipping_visible(clip,false)
+    scene.clip=clip
+    for i=1,REEL_WINNER+3 do scene.items[i]=(i*7+reward.id*5)%18+1 end
+    scene.items[REEL_WINNER]=reward.id
+    for i=1,7 do
+        local plate=menu_image(self,0,0,56,52,"plate_dark")
+        local item=menu_image(self,0,0,48,48,inventory_art(1))
+        gui.set_parent(plate,clip,false)
+        gui.set_parent(item,clip,false)
+        scene.slots[i]={plate=plate,item=item}
+    end
+    scene.highlight=menu_image(self,CX,303,58,56,"plate_active")
+    scene.winner=menu_image(self,CX,303,50,50,inventory_art(reward.id,reward.evolved))
+    local title=reward.evolved and data.evolutions[reward.id] or run.item_name(reward.id)
+    scene.name=remember(self,label(CX,234,title,17,WHITE,"upgrade_text"))
+    scene.category=remember(self,label(CX,258,reward.evolved and "ЭВОЛЮЦИЯ" or "НАГРАДА",11,GOLD,"upgrade_text"))
+    for _,node in ipairs({scene.reel,scene.pointer,clip,scene.highlight,scene.winner,scene.name,scene.category}) do
+        gui.set_enabled(node,false)
+    end
+end
+
+local function update_chest(self,dt)
+    local scene=self.chest_scene
+    if not scene.open or scene.revealed then return end
+    scene.elapsed=scene.elapsed+dt
+    local t=scene.elapsed
+    local frame=math.min(5,math.floor(t*15))
+    if frame~=scene.frame then
+        gui.play_flipbook(scene.chest,"elite_chest_0"..frame)
+        scene.frame=frame
+    end
+    if t<.12 then return end
+    gui.set_enabled(scene.glow,true)
+    gui.set_color(scene.glow,vmath.vector4(1,.63,.24,math.min(.56,(t-.12)*2)*(.72+.28*math.sin(t*7))))
+    for i,particle in ipairs(scene.sparks) do
+        local age=(t-.22-i*.024)/.64
+        local visible=age>=0 and age<1
+        gui.set_enabled(particle,visible)
+        if visible then
+            gui.set_position(particle,vmath.vector3(CX+(i-4)*(6+age*14),423+age*(33+i*3)-age^2*13,0))
+            gui.set_color(particle,vmath.vector4(1,.76,.35,1-age))
+        end
+    end
+    if t<CHEST_OPEN_TIME then return end
+    if not scene.spinning then
+        scene.spinning=true
+        gui.set_enabled(scene.reel,true)
+        gui.set_enabled(scene.clip,true)
+        gui.set_enabled(scene.pointer,true)
+    end
+    local phase=math.min(1,(t-CHEST_OPEN_TIME)/(REEL_STOP-CHEST_OPEN_TIME))
+    local distance=(REEL_WINNER-1)*REEL_PITCH*(1-(1-phase)^3)
+    local slot=math.floor(distance/REEL_PITCH)+1
+    local offset=distance%REEL_PITCH
+    if phase>=1 then
+        if not scene.stopped then audio.play(self.audio,"reel_stop");scene.stopped=true end
+    elseif slot~=scene.slot then
+        audio.play(self.audio,"reel",0,1,.91+slot*.014)
+        scene.slot=slot
+    end
+    for i,v in ipairs(scene.slots) do
+        local id=scene.items[slot+i-4]
+        gui.set_enabled(v.plate,id~=nil)
+        gui.set_enabled(v.item,id~=nil)
+        if id then
+            if v.id~=id then gui.play_flipbook(v.item,inventory_art(id));v.id=id end
+            local x=(i-4)*REEL_PITCH-offset
+            gui.set_position(v.plate,vmath.vector3(x,0,0))
+            gui.set_position(v.item,vmath.vector3(x,0,0))
+        end
+    end
+    if t>=REWARD_TIME then
+        audio.play(self.audio,scene.reward.evolved and "evolution" or "reward")
+        scene.revealed=true
+        gui.set_enabled(scene.slots[4].plate,false)
+        gui.set_enabled(scene.slots[4].item,false)
+        for _,node in ipairs({scene.highlight,scene.winner,scene.name,scene.category,scene.claim.hit,scene.claim.caption}) do
+            gui.set_enabled(node,true)
+        end
+        gui.set_text(scene.claim.caption,"Забрать")
+        self.buttons[1]=scene.claim.action
+    end
+end
+
+show_pause=function(self)
+    clear_menu(self)
+    self.mode,self.drag="pause",nil
+    remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0.02,0.02,0.03,0.50)))
+    remember(self,skin(CX,CY,390,440,"ui_panel"))
+    remember(self,label(CX,526,"Пауза",26,GOLD))
+    control(self,CX,455,320,52,"Продолжить",function() clear_menu(self);self.mode="run" end,true)
+    control(self,CX,389,320,48,"Снаряжение",function() show_build(self) end)
+    control(self,CX,326,320,48,self.diagnostics and "Диагностика: вкл" or "Диагностика: выкл",function()
+        self.diagnostics=not self.diagnostics;show_pause(self)
+    end)
+    control(self,CX,267,320,48,"Настройки звука",function() show_sound_settings(self) end)
+    if self.diagnostics then
+        local p=self.perf
+        remember(self,label(CX,223,string.format("FPS %d · минимум %d",p.fps,p.lowest==math.huge and 0 or p.lowest),12,TEAL))
+        remember(self,label(CX,203,"Врагов "..p.peak_enemies.." · узлов "..p.peak_nodes,12,WHITE))
+    end
+    control(self,CX,168,320,48,"Завершить вылазку",function() finish(self) end)
+end
+
+local SOUND_ROWS={{"master","Общая громкость"},{"effects","Звуковые эффекты"},{"ambience","Звуки окружения"}}
+
+local function save_audio(self)
+    audio.apply_settings(self.audio)
+    self.profile.audio=self.audio.settings
+    save(self)
+end
+
+show_sound_settings=function(self)
+    clear_menu(self)
+    self.mode,self.drag="sound_settings",nil
+    local backdrop=remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,
+        self.run and vmath.vector4(.02,.03,.04,.68) or MENU_INK))
+    gui.set_adjust_mode(backdrop,gui.ADJUST_STRETCH)
+    menu_image(self,CX,HEIGHT/2,390,488,"upgrade_panel")
+    remember(self,label(CX,585,"НАСТРОЙКИ ЗВУКА",26,GOLD,"upgrade_title"))
+    local settings=self.audio.settings
+    for i,row in ipairs(SOUND_ROWS) do
+        local key,caption=row[1],row[2]
+        local y=501-(i-1)*82
+        left_label(self,65,y+21,caption,17,WHITE)
+        local value=remember(self,label(365,y+21,"",16,GOLD))
+        remember(self,box(CX,y-10,184,9,PANEL))
+        local fill=remember(self,box(124,y-10,184,9,TEAL))
+        gui.set_pivot(fill,gui.PIVOT_W)
+        local function redraw()
+            gui.set_text(value,settings[key].."%")
+            gui.set_size(fill,vmath.vector3(184*settings[key]/100,9,0))
+            gui.set_enabled(fill,settings[key]>0)
+        end
+        local function change(delta)
+            local previous=settings[key]
+            settings[key]=math.max(0,math.min(100,previous+delta))
+            if previous==settings[key] then return end
+            save_audio(self)
+            redraw()
+            if previous==0 and key~="ambience" then audio.play(self.audio,"ui") end
+        end
+        control(self,86,y-10,49,40,"−",function() change(-10) end)
+        control(self,346,y-10,49,40,"+",function() change(10) end)
+        redraw()
+    end
+    control(self,CX,261,304,43,settings.muted and "Включить звук" or "Выключить звук",function()
+        settings.muted=not settings.muted
+        save_audio(self)
+        if not settings.muted then audio.play(self.audio,"ui") end
+        show_sound_settings(self)
+    end)
+    control(self,CX,192,304,50,"Назад",function()
+        if self.run then show_pause(self) else show_hangar(self) end
+    end,true)
+end
+
+show_build=function(self,selected)
+    clear_menu(self)
+    self.mode,self.drag="build",nil
+    local s=self.run
+    local current=selected or s.hero
+    remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0.02,0.02,0.03,0.58)))
+    remember(self,skin(CX,384,410,668,"ui_panel"))
+    remember(self,label(CX,675,"СНАРЯЖЕНИЕ",24,GOLD))
+    remember(self,label(113,628,"ОРУЖИЕ · 4",13,GOLD))
+    remember(self,label(320,628,"АРТЕФАКТЫ · 4",13,TEAL))
+    local weapons,artifacts={},{}
+    for id,rank in ipairs(s.weapon) do if rank>0 then weapons[#weapons+1]=id end end
+    for index,rank in ipairs(s.artifact) do if rank>0 then artifacts[#artifacts+1]=index+8 end end
+    for column,items in ipairs({weapons,artifacts}) do
+        for row=1,4 do
+            local id=items[row]
+            local x=column==1 and 111 or 321
+            local y=590-(row-1)*63
+            if id then
+                local item=id
+                local rank=id<=8 and s.weapon[id] or s.artifact[id-8]
+                local hit=control(self,x,y,192,54,"",function() show_build(self,item) end)
+                if item==current then gui.set_color(hit,vmath.vector4(0.82,1,0.94,1)) end
+                remember(self,item_sprite(x-77,y,28,id,id<=8 and s.evolved[id]))
+                remember(self,label(x+15,y+8,data.weapons[id] or data.artifacts[id-8],11,WHITE))
+                remember(self,label(x+15,y-13,rank.."/"..(id<=8 and 6 or 5),11,TEAL))
+            else
+                remember(self,skin(x,y,192,54,"ui_panel"))
+                remember(self,label(x,y,"—",15,DORMANT))
+            end
+        end
+    end
+    remember(self,skin(CX,246,382,128,"ui_panel"))
+    remember(self,label(CX,278,run.item_name(current),18,GOLD))
+    local description,pair=item_info(current)
+    remember(self,label(CX,246,description,12,WHITE))
+    remember(self,label(CX,214,pair,11,TEAL))
+    control(self,CX,124,300,52,"Назад к паузе",function() show_pause(self) end,true)
+end
+
+local function clock(t)
+    return string.format("%02d:%02d",math.floor(t/60),math.floor(t)%60)
+end
+
+finish=function(self)
+    clear_menu(self)
+    self.mode,self.drag="ended",nil
+    local s,p=self.run,self.profile
+    audio.play(self.audio,s.won and "victory" or "defeat")
+    p.time,p.level=math.max(p.time or 0,s.time),math.max(p.level or 0,s.level)
+    p.kills=(p.kills or 0)+s.kills
+    p.won=p.won or s.won or false
+    save(self)
+    remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0.02,0.02,0.03,0.52)))
+    remember(self,skin(CX,CY,404,478,"ui_panel"))
+    remember(self,label(CX,535,s.won and "Литейная выстояла" or "Вылазка окончена",25,GOLD))
+    remember(self,label(CX,488,clock(s.time).."  ·  Уровень "..s.level.."  ·  Машин "..s.kills,16,TEAL))
+    local ranking={}
+    for id,amount in pairs(s.damage) do ranking[#ranking+1]={id,amount} end
+    table.sort(ranking,function(a,b) return a[2]>b[2] end)
+    for i=1,math.min(4,#ranking) do
+        local entry=ranking[i]
+        local y=456-i*37
+        remember(self,box(CX,y,350,34,PANEL))
+        remember(self,sprite(66,y,26,26,"item_"..entry[1]))
+        remember(self,label(239,y,data.weapons[entry[1]].." · "..math.floor(entry[2]).." урона",13,WHITE))
+    end
+    control(self,CX,272,320,52,"Повторить",function() start(self) end,true)
+    control(self,CX,210,320,48,"В ангар",function() show_hangar(self) end)
+end
+
+local function update_window_layout(self)
+    local width,height=window.get_size()
+    if width<=0 or height<=0 then return end
+    local scale=math.min(width/WIDTH,height/HEIGHT)
+    self.view_padding.x=math.max(0,(width/scale-WIDTH)*.5)
+    self.view_padding.y=math.max(0,(height/scale-HEIGHT)*.5)
+    local area=window.get_safe_area()
+    local inset=area.inset_top/scale
+    local delta=self.hud_inset-inset
+    self.hud_inset=inset
+    for _,node in ipairs(self.hud_nodes) do
+        if node~=self.banner and node~=self.perf_text then
+            local p=gui.get_position(node)
+            gui.set_position(node,vmath.vector3(p.x,p.y+delta,p.z))
+        end
+    end
+end
+
+function init(self)
+    msg.post(".","acquire_input_focus")
+    self.profile=sys.load(sys.get_save_file("latunnaya_noch","profile"))
+    self.audio=audio.new(self.profile.audio)
+    self.menu,self.buttons,self.keys,self.pool={},{},{},{}
+    self.previous_used=0
+    self.hero,self.doctrine,self.arena,self.remainder,self.diagnostics=1,1,1,0,false
+    self.preview_heroes=sys.get_config_int("express_preview.unlock_heroes",0)==1
+    self.arena=sys.get_config_int("express_preview.start_arena",self.arena)
+    self.run_count=0
+    self.hangar_time=0
+    self.hud_inset=0
+    self.view_padding={x=0,y=0}
+    window.set_listener(function(_,event)
+        if event==window.WINDOW_EVENT_FOCUS_LOST then
+            self.audio.focused=false
+            self.keys,self.drag={},nil
+            if self.mode=="run" then show_pause(self) end
+        elseif event==window.WINDOW_EVENT_FOCUS_GAINED then
+            self.audio.focused=true
+        elseif event==window.WINDOW_EVENT_RESIZED then
+            update_window_layout(self)
+        end
+    end)
+    box(CX,HEIGHT/2,WIDTH,HEIGHT,INK)
+    self.dock_stream=dock_stream.new(WIDTH,HEIGHT)
+    self.actor=sprite(CX,CY,56,56,"agata_0")
+    gui.set_layer(self.actor,"actor")
+    self.hud=box(CX,706,424,124,vmath.vector4(.075,.070,.092,.96))
+    self.time_text=label(CX-10,751,"",16,WHITE,"upgrade_text")
+    self.hp_back=box(CX,733,380,8,PANEL)
+    self.hp=box(CX,733,366,5,RED)
+    self.xp_back=box(CX,722,380,8,PANEL)
+    self.xp=box(CX,722,366,5,TEAL)
+    self.more=label(CX,709,"",10,WHITE)
+    self.banner=label(CX,602,"",16,GOLD)
+    self.boss_direction=label(CX,0,"",13,GOLD)
+    gui.set_layer(self.boss_direction,"overlay")
+    gui.set_enabled(self.boss_direction,false)
+    self.perf_text=label(CX,580,"",11,TEAL)
+    self.pause_hit=box(398,751,42,30,PANEL)
+    self.pause_label=label(398,751,"II",16,GOLD)
+    self.stick=box(0,0,66,66,vmath.vector4(0.36,0.29,0.31,0.55))
+    self.thumb=box(0,0,20,20,vmath.vector4(0.89,0.68,0.46,0.75))
+    gui.set_layer(self.stick,"overlay")
+    gui.set_layer(self.thumb,"overlay")
+    gui.set_enabled(self.stick,false)
+    gui.set_enabled(self.thumb,false)
+    self.hud_nodes={self.hud,self.time_text,self.hp_back,self.hp,self.xp_back,self.xp,self.more,self.banner,self.perf_text,self.pause_hit,self.pause_label}
+    self.inventory={}
+    self.hud_nodes[#self.hud_nodes+1]=box(CX,700,390,1,MENU_DIM)
+    self.weapon_count=label(116,690,"ОРУЖИЕ 1/4",10,GOLD,"upgrade_text")
+    self.artifact_count=label(320,690,"АРТЕФАКТЫ 0/4",10,TEAL,"upgrade_text")
+    self.hud_nodes[#self.hud_nodes+1]=self.weapon_count
+    self.hud_nodes[#self.hud_nodes+1]=self.artifact_count
+    for i=1,8 do
+        local x=48+(i-1)*48
+        local slot={background=box(x,670,34,25,PANEL),icon=item_sprite(x,670,25,1),rank=label(x,652,"—",9,WHITE)}
+        self.inventory[i]=slot
+        for _,n in pairs(slot) do self.hud_nodes[#self.hud_nodes+1]=n end
+    end
+    for _,n in ipairs(self.hud_nodes) do
+        gui.set_layer(n,"overlay")
+        if n~=self.banner and n~=self.perf_text then gui.set_yanchor(n,gui.ANCHOR_TOP) end
+    end
+    update_window_layout(self)
+    show_launch(self)
+end
+
+local function finish_paint(self)
+    for i=self.used+1,self.previous_used do gui.set_enabled(self.pool[i].node,false) end
+    self.previous_used=self.used
+end
+
+local function paint(self,x,y,w,h,color,id,angle,layer,texture,flip_vertical,flip_horizontal)
+    local pad=self.view_padding
+    if x+w*.5 < -pad.x-20 or y+h*.5 < -pad.y-20
+        or x-w*.5 > WIDTH+pad.x+20 or y-h*.5 > HEIGHT+pad.y+20 then return end
+    self.used=self.used+1
+    local cached=self.pool[self.used]
+    if not cached then
+        local node=box(0,0,1,1,WHITE)
+        gui.set_size_mode(node,gui.SIZE_MODE_MANUAL)
+        cached={node=node}
+        self.pool[self.used]=cached
+    end
+    local node=cached.node
+    if self.used>self.previous_used then gui.set_enabled(node,true) end
+    gui.set_position(node,vmath.vector3(x,y,0))
+    if cached.w~=w or cached.h~=h then
+        gui.set_size(node,vmath.vector3(w,h,0))
+        cached.w,cached.h=w,h
+    end
+    angle,layer=angle or 0,layer or "arena"
+    if cached.angle~=angle then
+        gui.set_rotation(node,vmath.vector3(0,0,angle))
+        cached.angle=angle
+    end
+    if cached.layer~=layer then
+        gui.set_layer(node,layer)
+        cached.layer=layer
+    end
+    local sx,sy=flip_horizontal and -1 or 1,flip_vertical and -1 or 1
+    local scale=sx+sy*2
+    if cached.scale~=scale then
+        gui.set_scale(node,vmath.vector3(sx,sy,1))
+        cached.scale=scale
+    end
+    if not rawequal(cached.color,color) then
+        gui.set_color(node,color)
+        cached.color=color
+    end
+    local skin,atlas=id or "white",texture or "sprites"
+    if cached.atlas~=atlas then
+        gui.set_texture(node,atlas)
+        cached.atlas,cached.skin=atlas,nil
+    end
+    if cached.skin~=skin then
+        gui.play_flipbook(node,skin)
+        cached.skin=skin
+    end
+end
+
+local function mix(a,b,t) return a+(b-a)*t end
+
+local function weapon_trace(self,x,y,length,width,angle,color,opacity)
+    paint(self,x,y,length,width,vmath.vector4(color.x,color.y,color.z,opacity),
+        "white",math.deg(angle),"weapon_fx","vfx")
+end
+
+local hazard_palette={
+    slow={.78,.55,1}, rotor={.86,.55,1}, magnet={.23,.78,1}, shock={.4,.76,1},
+    summon={.47,.9,.72}, steam={.90,.77,.64}, fire={1,.42,.16}, reactor={1,.46,.17},
+    disc={1,.69,.29}, guard={1,.71,.36}, bite={1,.57,.30}, slam={1,.56,.26},
+    cinders={1,.58,.20}, arc={1,.55,.25}, bomb={1,.44,.25}, combo={1,.51,.25},
+}
+
+local function threat_color(kind,opacity)
+    local palette=hazard_palette[kind]
+    if palette then return vmath.vector4(palette[1],palette[2],palette[3],opacity) end
+    return vmath.vector4(1,.46,.29,opacity)
+end
+
+local function threat_outline(self,kind,x,y,radius,alpha,angle,half_arc,active)
+    local c=threat_color(kind,alpha)
+    if not half_arc then
+        local diameter=radius*2.06
+        paint(self,x,y,diameter,diameter,c,active and "impact_ring" or "threat_ring",0,"danger","arsenal")
+        paint(self,x,y,10,3,c,nil,0,"danger")
+        paint(self,x,y,3,10,c,nil,0,"danger")
+        return
+    end
+    local start,span,segments=angle-half_arc,half_arc*2,8
+    for i=0,segments-1 do
+        local a=start+span*(i+.5)/segments
+        paint(self,x+math.cos(a)*radius,y+math.sin(a)*radius,
+            math.max(5,span*radius/segments*.84),active and 4 or 3,c,nil,math.deg(a)+90,"danger")
+    end
+    for _,a in ipairs({start,start+span}) do
+        paint(self,x+math.cos(a)*radius*.5,y+math.sin(a)*radius*.5,radius,3,c,nil,math.deg(a),"danger")
+    end
+end
+
+local function threat_lane(self,kind,x,y,angle,length,width,opacity)
+    local dx,dy=math.cos(angle),math.sin(angle)
+    paint(self,x+dx*length*.5,y+dy*length*.5,length,width,threat_color(kind,opacity*.30),nil,math.deg(angle),"danger")
+    local c=threat_color(kind,opacity)
+    paint(self,x+dx*length*.53,y+dy*length*.53,12,3,c,nil,math.deg(angle)+34,"danger")
+    paint(self,x+dx*length*.53,y+dy*length*.53,12,3,c,nil,math.deg(angle)-34,"danger")
+end
+
+local function enemy_warning(self,s,u,x,y)
+    local role=data.foe_roles[s.arena][u.kind]
+    local kind=u.pattern or role
+    local attack=data.role_attack[role]
+    local alpha=.48+.46*math.max(0,math.min(1,(s.time-u.warning_started)/(u.warning-u.warning_started)))
+    local cast=u.cast
+    local volley=cast and cast.volley or u.volley
+    if volley then
+        local origin_x,origin_y=CX+volley.x-self.view_x,CY+volley.y-self.view_y
+        for i=1,volley.count do
+            local direction,length=run.volley_ray(s,volley,i)
+            if length>0 then threat_lane(self,volley.kind,origin_x,origin_y,direction,length,(volley.width+6)*2,alpha) end
+        end
+    end
+    if cast then
+        for _,zone in ipairs(cast.zones) do
+            local sx,sy=CX+zone.x-self.view_x,CY+zone.y-self.view_y
+            threat_outline(self,zone.kind,sx,sy,zone.radius,alpha,zone.angle,zone.half_arc)
+            -- One mark per impact order. Simultaneous zones share the same count.
+            if zone.order then
+                local c=threat_color(zone.kind,alpha)
+                for i=1,zone.order do
+                    paint(self,sx+(i-(zone.order+1)*.5)*7,sy+11,4,4,c,nil,0,"danger")
+                end
+            end
+        end
+        return
+    end
+    local angle=math.atan2(u.dash_y,u.dash_x)
+    local sx,sy=CX+u.target_x-self.view_x,CY+u.target_y-self.view_y
+    if attack and attack.dash then
+        threat_lane(self,kind,x,y,angle,data.attacks.ram.duration*data.attacks.ram.speed,(attack.width+6)*2,alpha)
+    elseif attack and u.attack_radius then
+        threat_outline(self,kind,sx,sy,u.attack_radius,alpha)
+    end
+end
+
+local hazard_art={
+    reactor={"electric","arsenal"}, shock={"electric","arsenal"}, magnet={"electric","arsenal"},
+    rotor={"clock","arsenal"}, slow={"clock","arsenal"}, summon={"electric","arsenal"},
+    disc={"swing_2","arsenal"}, guard={"swing_0","arsenal"}, bite={"swing_0","arsenal"},
+    fire={"vfx_furnace","vfx"}, steam={"vfx_steam","vfx"},
+    slam={"vfx_pressure","vfx"}, bomb={"vfx_furnace","vfx"},
+}
+local function render_hazard(self,s,h)
+    local active=s.time>=h.at
+    local x,y=CX+h.x-self.view_x,CY+h.y-self.view_y
+    local life=active and math.max(0,1-(s.time-h.at)/(h.duration or .28)) or 1
+    local alpha=active and .72*life or .44+.47*math.min(1,(s.time-h.start)/math.max(.01,h.at-h.start))
+    threat_outline(self,h.kind,x,y,h.radius,alpha,h.angle,h.half_arc,active)
+    local art=active and hazard_art[h.kind]
+    if art then
+        local r=h.radius
+        local size=r*(.95+.95*(1-life))
+        local a=h.angle or s.time*1.8
+        if h.half_arc then x,y=x+math.cos(a)*r*.45,y+math.sin(a)*r*.45 end
+        paint(self,x,y,size,h.half_arc and size*.62 or size,threat_color(h.kind,.78*life),
+            art[1],math.deg(a),"arena",art[2])
+    end
+end
+
+local function foe_sprite(arena,kind,state,frame)
+    return "a"..arena.."_foe_"..kind.."_"..state.."_"..frame, "foes_"..arena
+end
+
+local function paint_directional_enemy(self, roster, skin, u, x, foot_y, tint, time)
+    local scale = u.elite and 1.17 or 1
+    local art, flipped = roster.pose(skin,u,time)
+    paint(self,x,foot_y+skin.rise*scale,skin.width*scale,skin.height*scale,tint,
+        art,nil,time and u.kind==6 and "boss" or "arena",roster.atlas,nil,flipped)
+end
+
+local ALLEY_CURB=vmath.vector4(.43,.42,.39,1)
+local ALLEY_LIP=vmath.vector4(.60,.56,.47,1)
+local ALLEY_GUTTER=vmath.vector4(.12,.20,.24,.84)
+local ALLEY_CONTACT=vmath.vector4(.025,.035,.05,.20)
+local ALLEY_BRICK=vmath.vector4(.58,.58,.62,1)
+
+local function render_alley_frontage(self,house,ox,oy)
+    local side=house.side
+    local front=math.abs(house.front)
+    local p=house.passage
+    local road=front-4
+    local floor_y=(p.south+p.north)*.5+oy
+    local floor_h=p.north-p.south
+    local center=house.base+house.h*.5+oy
+    local entrance_end=p.gate_depth+17
+
+    paint(self,ox+side*road,center,4,house.h,ALLEY_CURB,nil,nil,"inlays")
+    paint(self,ox+side*(road-4),center,3,house.h,ALLEY_GUTTER,nil,nil,"inlays")
+
+    -- The road tile continues through the entrance. Shadows stay on the
+    -- wall returns so the opening has no rectangular overlay.
+    local pavement_w=entrance_end-road
+    for _,edge in ipairs({p.south,p.north}) do
+        local y=edge+oy
+        local wall_w=entrance_end-p.wall
+        local wall_offset=edge==p.south and -4 or 4
+        paint(self,ox+side*(road+pavement_w*.5),y-wall_offset,pavement_w,7,
+            ALLEY_CONTACT,nil,nil,"inlays")
+        paint(self,ox+side*(p.wall+wall_w*.5),y+wall_offset,wall_w,8,
+            ALLEY_BRICK,"brick",nil,"fixtures","alley_surfaces")
+        paint(self,ox+side*(road+pavement_w*.5),y,pavement_w,4,ALLEY_CURB,nil,nil,"fixtures")
+        paint(self,ox+side*(road+pavement_w*.5),y+1,pavement_w,1,ALLEY_LIP,nil,nil,"fixtures")
+        paint(self,ox+side*road,y,7,7,ALLEY_CURB,nil,nil,"fixtures")
+    end
+
+    paint(self,house.front+side*house.w*.5+ox,center,house.w,house.h,
+        NEUTRAL,"house_"..house.kind,nil,"fixtures","alley_buildings",nil,side>0)
+    -- The source PNG extends 18 units above its north foot and 4 below its south foot.
+    paint(self,ox+side*p.gate_depth,floor_y+7,20,floor_h+22,
+        NEUTRAL,"side_gate",nil,"fixtures","alley_buildings",nil,side>0)
+end
+
+local ALLEY_LAMP_ART={
+    {"street_lamp_1",23.4,59.4,18,37.8,4.5},
+    {"street_lamp_2",24.3,60.3,19.35,37.8,5.4},
+}
+
+local function render_alley_lamp(self,house,ox,oy,time)
+    local lamp=house.lamp
+    local art=ALLEY_LAMP_ART[lamp.variant]
+    local id,w,h,pivot,glass_height,glass_x=art[1],art[2],art[3],art[4],art[5],art[6]
+    local side=house.side
+    local x,y=lamp.x+ox,lamp.y+oy
+    local glow_x=x+side*(glass_x-pivot)
+    local glow_y=y+glass_height
+    local pulse=1+.055*math.sin(time*2.8+lamp.y*.047)+.028*math.sin(time*7.2+lamp.x)
+    local shade=vmath.vector4(.05,.028,.018,.40)
+    local ground=vmath.vector4(1,.60,.29,.58*pulse)
+    local center=vmath.vector4(1,.73,.40,.38*pulse)
+    local halo=vmath.vector4(1,.59,.23,.54*pulse)
+    local core=vmath.vector4(1,.78,.41,.46*pulse)
+    paint(self,glow_x-side*13,y+2,130,85,ground,"hangar_glow",nil,"alley_lamp_floor","menu_art")
+    paint(self,glow_x-side*7,y+1,74,45,center,"hangar_glow",nil,"alley_lamp_floor","menu_art")
+    paint(self,x,y-1,20,9,shade,"hangar_glow",nil,"alley_lamp_floor","menu_art")
+    paint(self,x+side*(w*.5-pivot),y+h*.5,w,h,NEUTRAL,id,nil,"fixtures","alley_buildings",nil,side<0)
+    paint(self,glow_x,glow_y,46,46,halo,"hangar_glow",nil,"alley_lamp_glow","menu_art")
+    paint(self,glow_x,glow_y,19,20,core,"hangar_glow",nil,"alley_lamp_glow","menu_art")
+end
+
+local function render_alley(self,s)
+    local ox,oy=CX-self.view_x,CY-self.view_y
+    local pad=self.view_padding
+    local left,right=-ox-pad.x,WIDTH-ox+pad.x
+    local bottom,top=-oy-pad.y,HEIGHT-oy+pad.y
+    local tile=96
+    for row=math.floor(bottom/tile),math.floor(top/tile) do
+        local y=(row+.5)*tile+oy
+        for col=math.floor(left/tile),math.floor(right/tile) do
+            paint(self,(col+.5)*tile+ox,y,tile+1,tile+1,NEUTRAL,"cobble",nil,"floor","alley_surfaces")
+        end
+    end
+    for row=math.floor((bottom-alley.height)/alley.height),math.floor((top+alley.height)/alley.height) do
+        local section=alley.section(s.alley,row)
+        for _,house in ipairs(section.houses) do
+            render_alley_frontage(self,house,ox,oy)
+            render_alley_lamp(self,house,ox,oy,s.time)
+        end
+        for _,d in ipairs(section.decals) do
+            paint(self,d.x+ox,d.y+oy,d.w,d.h,NEUTRAL,d.id,d.angle,"inlays","alley_props")
+        end
+        if section.vent_x then
+            local x,vy=section.vent_x+ox,section.vent_y+oy
+            local state=run.vent_phase(s.time,section.vent_phase)
+            if state=="warning" then threat_outline(self,"steam",x,vy,data.vents.radius,.72)
+            elseif state=="active" then
+                local phase=(s.time*2+row*.19)%1
+                paint(self,x,vy+phase*20,60,67,vmath.vector4(.86,.94,.94,1-phase*.55),
+                    "vent_steam_"..math.floor(phase*3),0,"arena","dock_steam")
+                threat_outline(self,"steam",x,vy,data.vents.radius,.88,0,nil,true)
+            end
+        end
+    end
+end
+
+local express_scenery={
+    "side_forest",
+    "side_city",
+    "side_river",
+}
+local EXPRESS_TRACK_WIDTH=express.width+48
+
+local function render_express_trackside(self,ox,oy,bottom,top,shift,river)
+    local height=256
+    local bridge_tint=river==1 and NEUTRAL or vmath.vector4(1,1,1,river)
+    for row=math.floor((bottom-shift)/height),math.floor((top-shift)/height) do
+        local y=(row+.5)*height+oy+shift
+        if river<1 then
+            paint(self,ox,y,EXPRESS_TRACK_WIDTH,height,NEUTRAL,"express_track",nil,"floor","express_scenery")
+        end
+        if river>0 then
+            paint(self,ox,y,EXPRESS_TRACK_WIDTH,height,bridge_tint,"express_track_bridge",nil,"floor","express_scenery")
+        end
+    end
+    if river>=1 then return end
+    local tint=river==0 and NEUTRAL or vmath.vector4(1,1,1,1-river)
+    local spacing=286
+    for row=math.floor((bottom-shift)/spacing)-1,math.floor((top-shift)/spacing)+1 do
+        local y=row*spacing+oy+shift
+        local side=row%2==0 and -1 or 1
+        paint(self,ox+side*(EXPRESS_TRACK_WIDTH/2+4),y,24,34,tint,"trackside_signal",nil,
+            "floor","express_scenery",nil,side<0)
+    end
+end
+
+local function render_express_scenery(self,ox,oy,bottom,top,time)
+    local track_shift=-time*express.scenery_speed
+    local sector,left_fade,right_fade=express.scenery_blend(self.view_y,time)
+    local current=express_scenery[sector%#express_scenery+1]
+    local incoming=express_scenery[(sector+1)%#express_scenery+1]
+    local function landscape(scene,side,opacity,shade)
+        if opacity<=0 then return end
+        local river=scene=="side_river"
+        local scale=river and 1 or 1.28
+        local strip_w,strip_h=320*scale,896*scale
+        local city=scene=="side_city"
+        if city then strip_w,strip_h=605,2160 end
+        local inner=EXPRESS_TRACK_WIDTH/2-(river and 20 or 28)
+        local shift=river and track_shift*.83 or track_shift
+        local tint=opacity==1 and shade==1 and NEUTRAL or vmath.vector4(shade,shade,shade,opacity)
+        local offset=shift+(city and side<0 and strip_h*.36 or 0)
+        for row=math.floor((bottom-offset)/strip_h),math.floor((top-offset)/strip_h) do
+            local y=(row+.5)*strip_h+oy+offset
+            paint(self,ox+side*(inner+strip_w*.5),y,strip_w,strip_h,tint,scene,nil,
+                "floor","express_scenery",nil,side<0)
+        end
+    end
+    local function river_visibility(fade)
+        return current=="side_river" and 1-fade or incoming=="side_river" and fade or 0
+    end
+    for side=-1,1,2 do
+        local fade=side<0 and left_fade or right_fade
+        local shade=1-.48*fade*(1-fade)
+        if fade<1 then landscape(current,side,1,shade) end
+        landscape(incoming,side,fade,shade)
+    end
+    return river_visibility(left_fade),river_visibility(right_fade),track_shift
+end
+
+local function render_express_river(self,ox,oy,bottom,top,time,left_river,right_river,track_shift)
+    if left_river<=0 and right_river<=0 then return end
+    local inner=express.width/2-8
+    local drift=track_shift*.83-time*15
+    local step=58
+    for side=-1,1,2 do
+        local river=side<0 and left_river or right_river
+        if river>0 then
+            for row=math.floor((bottom-drift)/step)-1,math.floor((top-drift)/step)+1 do
+                local seed=row*7+side*17
+                local x=ox+side*(inner+69+seed%196)
+                local y=oy+row*step+drift
+                local alpha=(.27+.11*math.sin(time*1.7+seed))*river
+                local color=vmath.vector4(.47,.77,.88,alpha)
+                paint(self,x,y,17+seed%24,5+seed%4,color,"river_glint",nil,"floor","express_scenery",nil,side<0)
+            end
+        end
+    end
+end
+
+local function render_express(self,s)
+    local ox,oy=CX-self.view_x,CY-self.view_y
+    local pad=self.view_padding
+    local bottom,top=-oy-pad.y,HEIGHT-oy+pad.y
+    local half=express.width/2
+    local art="express_modular"
+    local left_river,right_river,track_shift=render_express_scenery(self,ox,oy,bottom,top,s.time)
+    render_express_river(self,ox,oy,bottom,top,s.time,left_river,right_river,track_shift)
+    render_express_trackside(self,ox,oy,bottom,top,track_shift,(left_river+right_river)*.5)
+    for row=math.floor(bottom/express.period),math.floor((top+express.gap)/express.period) do
+        local car=express.car(row)
+        local y=row*express.period+express.height+oy
+        local x=ox-half
+        local sway=express.sway(s.time,row)
+        local function place(id,u,v,w,h,layer,flip,fixed)
+            paint(self,x+u+w/2+(fixed and 0 or sway),y-v-h/2,w,h,NEUTRAL,id,nil,layer,art,nil,flip)
+        end
+        local width,height=express.width,express.height
+        local gap,opening,wall,end_depth=express.gap,express.opening,express.wall,express.end_depth
+        local entry=(width-opening)/2
+        place("car_chassis",-9,0,width+18,height,"inlays")
+        place("car_"..car.deck,0,0,width,height,"inlays")
+        if car.passenger then
+            place("passenger_runner",half-31,7,62,height-14,"inlays")
+        end
+        place("coupler_buffers",entry-27,-gap,opening+54,gap,"inlays",nil,true)
+        place("gangway_deck",entry,-gap-2,opening,gap+4,"inlays",nil,true)
+        place("gangway_rail_left",entry-8,-gap,8,gap,"fixtures",nil,true)
+        place("gangway_rail_right",width-entry,-gap,8,gap,"fixtures",nil,true)
+        place("wall_left",0,0,wall,height,"fixtures")
+        place("wall_right",width-wall,0,wall,height,"fixtures")
+        place("door_cap_north",-3,0,entry+3,end_depth,"fixtures",nil,true)
+        place("door_cap_north",width-entry,0,entry+3,end_depth,"fixtures",true,true)
+        place("door_cap_south",-3,height-end_depth,entry+3,end_depth,"fixtures",nil,true)
+        place("door_cap_south",width-entry,height-end_depth,entry+3,end_depth,"fixtures",true,true)
+        for i=0,3 do
+            local v=34+i*(height-116)/3
+            place("window_glow",1,v-17,74,92,"fixtures")
+            place("window_glow",width-75,v-17,74,92,"fixtures")
+            place("window",3,v,16,48,"fixtures")
+            place("window",width-19,v,16,48,"fixtures",true)
+        end
+        place("lamp_glow",-11,79,54,58,"fixtures")
+        place("lamp_glow",width-44,79,54,58,"fixtures")
+        place("wall_lamp",9,96,15,25,"fixtures")
+        place("wall_lamp",width-24,96,15,25,"fixtures",true)
+        for _,prop in ipairs(car.props) do
+            place(prop[1],prop[2],prop[3],prop[4],prop[5],"arena")
+        end
+        if car.steam then
+            local cycle=(s.time+row*.43)%2.4
+            if cycle<.9 then
+                local frame=math.floor(cycle*7)%4
+                place("steam_0"..frame,car.steam[1]-26,car.steam[2]-62,52,68,"weapon_fx")
+            end
+            local tx,ty,tw,th=unpack(car.tank)
+            place("tank_glow_0"..(math.floor(s.time*4)%4),tx,ty,tw,th,"arena")
+        end
+    end
+end
+
+local function render_bastion(self, s)
+    local ox = CX - self.view_x
+    local oy = CY - self.view_y
+    local pad = self.view_padding
+    local art = "bastion_modular"
+    local left = -pad.x
+    local right = WIDTH + pad.x
+
+    local function strip(id, y, h, scroll, tint)
+        local width = 1280
+        local offset = scroll % width
+
+        for col = math.floor((left - offset) / width), math.floor((right - offset) / width) do
+            paint(self, offset + (col + 0.5) * width, y, width, h, tint or NEUTRAL, id, nil, "floor", art)
+        end
+    end
+
+    local ypan = self.view_y * 0.13
+
+    strip("scenery_sky", HEIGHT * 0.5, HEIGHT + pad.y * 2, -self.view_x * 0.1 - s.time * 3)
+    strip("scenery_islands", HEIGHT - 128 - ypan, 470 + pad.y, -self.view_x * 0.21 - s.time * 7, vmath.vector4(0.78, 0.83, 0.94, 0.64))
+    strip("scenery_clouds", 138 - ypan, 420 + pad.y * 2, -self.view_x * 0.37 - s.time * 15)
+
+    local height = bastion.height
+    local top = oy + height / 2
+    local gap, inset = bastion.gap, bastion.join_inset
+    local insert_top, insert_h = bastion.insert_top, bastion.insert_height
+
+    local function place(id, x, v, w, h, layer, flip_v, flip_h)
+        paint(self, ox + x + w / 2, top - v - h / 2, w, h, NEUTRAL, id, nil, layer, art, flip_v, flip_h)
+    end
+
+    local last_deck = bastion.decks[#bastion.decks]
+    local rotor_v = 269
+    place("stern_shaft", -153, rotor_v-11, 57, 22, "inlays", false, true)
+    place("stern_extended", -108, -17, 111, 442 + bastion.decks[1].extension, "inlays")
+    place("bow_cap", bastion.end_x - 2, 1, 177, 405 + last_deck.extension, "inlays")
+    local rotor_x, rotor_y = ox - 160, top - rotor_v
+    local phase = s.time * math.pi * 4.4
+    local dx, dy = math.sin(phase) * 45, math.cos(phase) * 219
+    local blade_length = math.sqrt(dx * dx + dy * dy)
+    local angle = math.deg(math.atan2(-dx, dy))
+    for side = -1, 1, 2 do
+        paint(self,rotor_x+side*dx*.5,rotor_y+side*dy*.5,64,blade_length,
+            NEUTRAL,"rotor_blade",angle,"fixtures",art,side<0)
+    end
+    paint(self,rotor_x,rotor_y,85,67,NEUTRAL,"rotor_hub",nil,"fixtures",art,nil,true)
+    local function end_rail(x, deck)
+        local depth=bastion.base_height+deck.extension
+        paint(self,ox+x,top-depth*.5,depth,12,NEUTRAL,"rail_rear",90,"alley_overhang",art)
+    end
+    end_rail(3,bastion.decks[1])
+    end_rail(bastion.end_x-3,last_deck)
+
+    local layers = {"fixtures", "inlays", "fixtures", "alley_overhang"}
+    local parts = {"far", "walkway", "near", "hull"}
+    for section, deck in ipairs(bastion.decks) do
+        local x, width = deck.x, deck.width
+        local seam = x + width
+        if ox + seam + gap + inset >= left and ox + x - inset <= right then
+            local v = 0
+            for i, h in ipairs(deck.bands) do
+                if i == 3 then
+                    place("extension_"..deck.art,x,v,width,deck.extension,"inlays")
+                    v = v + deck.extension
+                end
+                place("concept_"..deck.art.."_"..parts[i],x,v,width,h,layers[i])
+                v = v + h
+            end
+
+            local join = bastion.joins[section]
+            if join then
+                place("join_bulkhead",seam,0,gap,join.far_edge,"inlays")
+                place("extended_join_deck",seam,join.far_edge,gap,join.near_edge-join.far_edge,"inlays")
+                place("join_rear_straight",seam-1,0,gap+2,25,"fixtures")
+                local next_deck=bastion.decks[section+1]
+                local near_delta=next_deck.near_edge-deck.near_edge
+                local near_angle=math.deg(math.atan2(-near_delta,gap))
+                local near_width=math.sqrt(gap*gap+near_delta*near_delta)+3
+                local near_v=(deck.near_edge+next_deck.near_edge)*.5
+                local near_x=ox+seam+gap*.5
+                paint(self,near_x,top-near_v-7,near_width,17,NEUTRAL,"join_front",near_angle,"alley_overhang",art)
+                paint(self,near_x,top-near_v-50,near_width,79,NEUTRAL,"join_hull",near_angle,"alley_overhang",art)
+                local u, w = seam-inset, gap+2*inset
+                place("extended_join_ribs",u,insert_top,w,insert_h,"fixtures")
+                for i, edge in ipairs({u,u+w-6}) do
+                    place("join_threshold",edge,insert_top,6,insert_h,"fixtures")
+                    place("join_bolt",edge-3,insert_top-3,13,13,"fixtures",nil,i==1)
+                    place("join_bolt",edge-3,insert_top+insert_h-10,13,13,"fixtures",true,i==1)
+                end
+            end
+
+            if deck.vents then
+                for i, vent in ipairs(deck.vents) do
+                    local phase = (s.time + i * 0.73) % 3.1
+                    if phase < 1.6 then
+                        local u, v = unpack(vent)
+                        local a = math.sin(phase / 1.6 * math.pi) * 0.4
+                        paint(self,ox+x+u+phase*9,top-v+phase*25,32+phase*12,43+phase*12,
+                            vmath.vector4(0.79,0.88,1,a),"steam_puff",nil,"weapon_fx",art)
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function render(self,alpha)
+    gui.set_enabled(self.boss_direction,false)
+    self.used=0
+    local s=self.run
+    local drag=self.drag
+    gui.set_enabled(self.stick,drag~=nil)
+    gui.set_enabled(self.thumb,drag~=nil)
+    if drag then
+        local anchor=vmath.vector3(drag.ox,drag.oy,0)
+        local shift=vmath.vector3(drag.x-drag.ox,drag.y-drag.oy,0)
+        local length=vmath.length(shift)
+        gui.set_position(self.stick,anchor)
+        gui.set_position(self.thumb,anchor+shift*math.min(1,28/math.max(1,length)))
+    end
+    local hud_visible=self.mode=="run" or self.mode=="level" or self.mode=="chest"
+    for _,n in ipairs(self.hud_nodes) do gui.set_enabled(n,hud_visible) end
+    if not s then
+        finish_paint(self)
+        return
+    end
+    if s.arena==1 then
+        dock_stream.update(self.dock_stream,s.dock,self.view_x-CX,self.view_y-CY)
+    elseif s.arena==2 then
+        render_alley(self,s)
+    elseif s.arena==3 then
+        render_express(self,s)
+    elseif s.arena==4 then
+        render_bastion(self,s)
+    end
+    if s.arena==1 then
+        local left,bottom=self.view_x-CX,self.view_y-CY
+        local radius=data.vents.radius
+        local size=dock_art.size
+        local pad=self.view_padding
+        for col=math.floor((left-pad.x-60)/size),math.floor((left+WIDTH+pad.x+60)/size) do
+            for row=math.floor((bottom-pad.y-60)/size),math.floor((bottom+HEIGHT+pad.y+60)/size) do
+                local sector=dock_art.sector(s.dock,col,row)
+                if sector.vent then
+                    local x,y=sector.x-left,sector.y-bottom
+                    local state=run.vent_phase(s.time,(col*7+row*11)%4)
+                    if state=="warning" then
+                        threat_outline(self,"steam",x,y,radius,.72)
+                    elseif state=="active" then
+                        local phase=(s.time*2+col*.13+row*.19)%1
+                        local art="vent_steam_"..math.floor(phase*3)
+                        paint(self,x,y+phase*20,70,77,vmath.vector4(.86,.94,.94,1-phase*.55),art,0,"arena","dock_steam")
+                        threat_outline(self,"steam",x,y,radius,.88,0,nil,true)
+                    end
+                end
+            end
+        end
+    end
+    for _,c in ipairs(s.crates) do
+        paint(self,CX+c.x-self.view_x,CY+c.y-self.view_y,34,34,GOLD,"item_"..(13+c.kind))
+    end
+    for _,l in ipairs(s.loot) do
+        local x,y=CX+l.x-self.view_x,CY+l.y-self.view_y
+        if l.kind=="xp" then
+            local tier=l.xp>=10 and "xp_large" or l.xp>=4 and "xp_medium" or "xp_small"
+            local size=l.xp>=10 and 26 or l.xp>=4 and 20 or 16
+            paint(self,x,y+math.sin(s.time*4+l.x*0.09)*1.4,size,size,NEUTRAL,tier,nil,"arena","ui")
+        elseif l.kind=="chest" then
+            paint(self,x,y+14,49,48,NEUTRAL,"elite_chest_00",nil,"arena","elite_chest")
+        else
+            paint(self,x,y,27,27,NEUTRAL,"item_13")
+        end
+    end
+    if self.mode=="run" then
+        local target,priority,distance=nil,math.huge,math.huge
+        local boss=s.boss
+        if boss and boss.hp>0 then
+            local x,y=CX+boss.x-self.view_x,CY+boss.y-self.view_y
+            if x<32 or x>WIDTH-32 or y<123 or y>632 then
+                -- Once the Stoker leaves the viewport, point along the
+                -- corridor to the next coupling, not across the end wall.
+                local dx,dy=x-CX,y-CY
+                local edge_y=dy>0 and 632 or 123
+                if s.arena==3 then dx,dy=0,edge_y-CY end
+                local fraction=math.min(1,184/math.max(1,math.abs(dx)),
+                    math.abs(edge_y-CY)/math.max(1,math.abs(dy)))
+                x,y=CX+dx*fraction,CY+dy*fraction
+                paint(self,x,y,26,26,GOLD,"enemy_arc",math.deg(math.atan2(dy,dx)),"overlay","arsenal")
+                local name=data.arena_foes[s.arena][6]
+                gui.set_text(self.boss_direction,name)
+                gui.set_position(self.boss_direction,vmath.vector3(math.max(100,math.min(WIDTH-100,x)),
+                    y+(dy>0 and -23 or 23),0))
+                gui.set_enabled(self.boss_direction,true)
+                target=boss
+            end
+        end
+        if not target then
+            for _,l in ipairs(s.loot) do
+                if l.kind=="chest" then
+                    local dx,dy=l.x-s.x,l.y-s.y
+                    local dist=dx*dx+dy*dy
+                    if priority>1 or (priority==1 and dist<distance) then
+                        target,priority,distance=l,1,dist
+                    end
+                end
+            end
+        end
+        if not target then
+            for _,c in ipairs(s.crates) do
+                local dx,dy=c.x-s.x,c.y-s.y
+                local dist=dx*dx+dy*dy
+                if dist<distance then target,priority,distance=c,2,dist end
+            end
+        end
+        if target and target~=boss then
+            local tx,ty=CX+target.x-self.view_x,CY+target.y-self.view_y
+            if tx<32 or tx>WIDTH-32 or ty<123 or ty>632 then
+                local dx,dy=tx-CX,ty-CY
+                local fraction=math.min(1,185/math.max(1,math.abs(dx)),270/math.max(1,math.abs(dy)))
+                local x=math.max(32,math.min(WIDTH-32,CX+dx*fraction))
+                local y=math.max(123,math.min(632,CY+dy*fraction))
+                local icon=priority==1 and "item_12" or "item_"..(13+target.kind)
+                paint(self,x,y,30,30,priority==1 and TEAL or GOLD,icon,nil,"overlay")
+            end
+        end
+    end
+    local f=s.formation
+    if f then
+        if f.kind%2==0 then
+            for i=2,13 do
+                local a=f.angle+i*math.pi*2/15
+                paint(self,CX+f.x-self.view_x+205*math.cos(a),CY+f.y-self.view_y+205*math.sin(a),16,16,GOLD,nil,45)
+            end
+            paint(self,CX+f.x-self.view_x+205*math.cos(f.angle),CY+f.y-self.view_y+205*math.sin(f.angle),24,5,TEAL,nil,math.deg(f.angle))
+        else
+            for lane=0,(f.kind==3 and 1 or 0) do
+                paint(self,CX+f.x-self.view_x,CY+f.y-self.view_y,510,214,vmath.vector4(1,0.45,0.32,0.19),nil,math.deg(f.angle)+lane*90)
+            end
+        end
+    end
+    local directional_roster=s.arena==2 and alley_enemies or s.arena==4 and bastion_enemies or express_enemies
+    for _,u in ipairs(s.enemies) do
+        local x,y=CX+mix(u.px,u.x,alpha)-self.view_x,CY+mix(u.py,u.y,alpha)-self.view_y
+        local boss_skin=dock_bosses.skin(s.arena,u.kind,u.elite)
+        local directional_skin=directional_roster.skin(s.arena,u.kind)
+        local skin=s.arena==1 and dock_enemies.skins[u.kind]
+        local side=u.kind==6 and 132 or u.elite and 106 or u.kind==1 and 78 or u.kind==2 and 84 or 92
+        local foot_y=y-14
+        if s.arena==1 then foot_y=y-(u.kind==6 and 48*side/128 or 29*side/96) end
+        if u.warning then enemy_warning(self,s,u,x,y) end
+        if boss_skin then
+            side=boss_skin.size
+            foot_y=y-boss_skin.foot_drop
+        elseif directional_skin then
+            side=directional_skin.width*(u.elite and 1.17 or 1)
+            if s.arena==4 then foot_y=y-directional_skin.rise*(u.elite and 1.17 or 1) end
+        elseif skin then
+            side=skin.size*(u.elite and 1.17 or 1)
+            foot_y=y-11
+        end
+        if s.arena==4 and not u.landing_y then foot_y=y end
+        local shadow=directional_skin and directional_skin.shadow
+        paint(self,x,foot_y,shadow and shadow*(u.elite and 1.17 or 1) or side*.35,6,SHADOW)
+        if u.elite then paint(self,x,foot_y-12,42,5,GOLD) end
+        if u.kind==6 and u.recover_until and u.recover_until>s.time then
+            paint(self,x,y-15,60,14,vmath.vector4(.65,.94,.84,.72),"threat_ring",0,"arena","arsenal")
+        end
+        if boss_skin then
+            local art,flipped=dock_bosses.pose(boss_skin,u,s.time)
+            local tint=(u.flash or 0)>0 and TEAL or NEUTRAL
+            paint(self,x,foot_y+boss_skin.center_above_foot,side,side,tint,art,nil,
+                u.kind==6 and "boss" or "arena","dock_bosses",nil,flipped)
+        elseif directional_skin then
+            local tint=(u.flash or 0)>0 and TEAL or NEUTRAL
+            if u.spawn_until and u.spawn_until>s.time then
+                local opacity=1-(u.spawn_until-s.time)*.48/data.spawn_waves.spawn_warmup
+                tint=vmath.vector4(tint.x,tint.y,tint.z,math.max(.5,opacity))
+            end
+            paint_directional_enemy(self,directional_roster,directional_skin,u,x,foot_y,tint,s.time)
+        elseif skin then
+            local frame=dock_enemies.frame(skin,u,s.time)
+            local art,flipped
+            if skin.rear then
+                art,flipped=dock_enemies.directional_sprite(skin,u,frame)
+            else
+                local attacking=u.warning or (u.recover_until or 0)>s.time
+                local direction=attacking and u.dash_x or u.x-u.px
+                art,flipped=skin[frame],not skin.fixed and (direction or 0)>.04
+                if not skin.fixed and not attacking and math.abs(direction or 0)<.04 then
+                    flipped=(u.facing_x or -1)>0
+                end
+            end
+            local tint=(u.flash or 0)>0 and TEAL or NEUTRAL
+            if u.spawn_until and u.spawn_until>s.time then
+                local opacity=1-(u.spawn_until-s.time)*.48/data.spawn_waves.spawn_warmup
+                tint=vmath.vector4(tint.x,tint.y,tint.z,math.max(.5,opacity))
+            end
+            paint(self,x,foot_y+side*25/80,side,side,tint,art,nil,"arena","dock_enemies",nil,flipped)
+        else
+            local wrapping=(s.time+x*.013)*10
+            local state,frame="idle",math.floor(wrapping*.32)%2
+            if u.warning or u.spawn_until and s.time<u.spawn_until then
+                state,frame="charge",math.floor(wrapping)%2
+            elseif (u.flash or 0)>0 then
+                state,frame="hit",0
+            elseif (u.attack_until or 0)>s.time or (u.dash_until or 0)>s.time then
+                state,frame="attack",math.floor(wrapping)%2
+            elseif math.abs(u.x-u.px)+math.abs(u.y-u.py)>.1 then
+                state,frame="move",math.floor(wrapping)%4
+            end
+            local art,atlas=foe_sprite(s.arena,u.kind,state,frame)
+            paint(self,x,y,side,side,NEUTRAL,art,nil,u.kind==6 and "boss" or "arena",atlas)
+        end
+        if u.kind==6 and u.hp>0 then
+            local hp=math.min(1,u.hp/u.max_hp)
+            local bar_y=y+side*.41
+            paint(self,x,bar_y,66,9,INK,nil,nil,"boss")
+            paint(self,x-31+31*hp,bar_y,62*hp,5,GOLD,nil,nil,"boss")
+        end
+    end
+    for _,p in ipairs(s.shots) do
+        local x,y=CX+mix(p.px,p.x,alpha)-self.view_x,CY+mix(p.py,p.y,alpha)-self.view_y
+        local angle=math.atan2(p.vy,p.vx)
+        local rail=p.weapon==6
+        weapon_trace(self,x-11*math.cos(angle),y-11*math.sin(angle),rail and 34 or 22,
+            rail and 4 or 3,angle,rail and TEAL or GOLD,.88)
+        if rail then
+            local frame=s.evolved[6] and 3 or 1+math.floor(s.time*18)%2
+            paint(self,x,y, s.evolved[6] and 85 or 63, s.evolved[6] and 35 or 26,
+                NEUTRAL,"rail_"..frame,math.deg(angle),"weapon_fx","arsenal")
+        else
+            paint(self,x,y,40,15,NEUTRAL,"vfx_rivet",math.deg(angle),"weapon_fx","vfx")
+        end
+    end
+    for _,p in ipairs(s.enemy_shots) do
+        local x,y=CX+mix(p.px,p.x,alpha)-self.view_x,CY+mix(p.py,p.y,alpha)-self.view_y
+        local angle=math.deg(math.atan2(p.vy,p.vx))
+        if p.kind=="cinders" then
+            paint(self,x,y,34,p.radius*2+4,NEUTRAL,"vfx_furnace",angle,"danger","vfx")
+        else
+            local art=p.kind=="arc" and "enemy_arc" or "enemy_bolt"
+            paint(self,x,y,46,p.radius*2+7,NEUTRAL,art,angle,"danger","arsenal")
+        end
+    end
+    for _,h in ipairs(s.hazards) do render_hazard(self,s,h) end
+    local amount,radius=run.disks(s)
+    local disk_size=s.evolved[5] and 36 or 28
+    for i=1,amount do
+        local ox,oy,angle=run.disk_offset(s.time,i,amount,radius)
+        paint(self,CX+ox,CY+oy,disk_size,disk_size,NEUTRAL,"vfx_saw",math.deg(angle),"weapon_fx","vfx")
+    end
+    for _,e in ipairs(s.effects) do
+        local x,y=CX+e.x-self.view_x,CY+e.y-self.view_y
+        if e.kind=="rivet_flash" or e.kind=="rail" or e.kind=="rail_evo"
+            or e.kind==3 or e.kind==4 or e.kind==7 or e.kind==8 or
+            e.kind=="pendulum" or e.kind=="pendulum_evo" or e.kind=="spray" then
+            x,y=CX+mix(s.px,s.x,alpha)-self.view_x,CY+mix(s.py,s.y,alpha)-self.view_y
+        end
+        local total=e.total or 0.22
+        local age=math.max(0,total-e.life)
+        local fade=vmath.vector4(1,1,1,math.min(1,e.life/0.16))
+        if e.kind=="rivet_flash" then
+            local reach=20+age*49
+            weapon_trace(self,x+math.cos(e.angle)*reach,y+math.sin(e.angle)*reach,
+                17+age*34,5,e.angle,GOLD,fade.w)
+            paint(self,x+math.cos(e.angle)*reach,y+math.sin(e.angle)*reach,
+                e.r+age*54,14+age*30,fade,"vfx_rivet",math.deg(e.angle),"weapon_fx","vfx")
+        elseif e.kind=="rail" or e.kind=="rail_evo" then
+            local reach=27+age*45
+            local frame=e.kind=="rail_evo" and 3 or math.min(2,math.floor(age*15))
+            local muzzle_x,muzzle_y=x+math.cos(e.angle)*reach,y+math.sin(e.angle)*reach
+            weapon_trace(self,muzzle_x,muzzle_y,25+age*72,5,e.angle,TEAL,fade.w)
+            paint(self,muzzle_x,muzzle_y,48+age*185,40,fade,"rail_"..frame,math.deg(e.angle),"weapon_fx","arsenal")
+        elseif e.kind=="pendulum" or e.kind=="pendulum_evo" then
+            local evolved=e.kind=="pendulum_evo"
+            local a=e.angle+(age/total-.5)*(evolved and math.pi*2 or math.pi*1.55)
+            local frame=evolved and 3 or math.min(2,math.floor(age*9))
+            local reach=e.r*(.6+.85*age/total)
+            local shift=evolved and 0 or e.r*.30
+            paint(self,x+math.cos(a)*shift,y+math.sin(a)*shift,reach,reach,fade,
+                "swing_"..frame,math.deg(a),"weapon_fx","arsenal")
+            if evolved then
+                paint(self,x,y,e.r*1.52,e.r*1.52,vmath.vector4(1,.9,.63,fade.w*.68),
+                    "clock",-math.deg(a),"weapon_fx","arsenal")
+            end
+        elseif e.kind=="spray" then
+            local a=e.angle
+            local shift=14+e.r*math.min(1,age/total)
+            local frame=math.min(3,math.floor(age*11))
+            paint(self,x+math.cos(a)*shift,y+math.sin(a)*shift,40+shift*.45,40+shift*.45,
+                fade,"acid_"..frame,math.deg(a),"weapon_fx","arsenal")
+        elseif e.kind=="repair" then
+            paint(self,x,y,math.max(12,e.r),17,vmath.vector4(.54,1,.57,fade.w),
+                "vfx_arc",math.deg(e.angle),"arena","vfx")
+        elseif e.kind==2 or e.kind==6 then
+            weapon_trace(self,x,y,math.max(8,e.r),e.kind==6 and 4 or 3,e.angle,TEAL,fade.w*.72)
+            paint(self,x,y,math.max(16,e.r),e.kind==6 and 34 or 27,fade,
+                e.kind==6 and "vfx_storm" or "vfx_arc",math.deg(e.angle),"weapon_fx","vfx")
+        elseif e.kind==3 or e.kind==7 then
+            local count=e.kind==7 and 5 or 3
+            for i=1,count do
+                local delay=(i-1)*0.028
+                local t=age-delay
+                if t>=0 then
+                    local grow=math.min(1,t/0.13)
+                    local a=e.angle+(i-(count+1)/2)*(e.kind==7 and 0.26 or 0.33)
+                        +math.sin(s.time*17+i*2.4)*0.045
+                    local reach=e.r*(0.22+0.73*grow)
+                    local opacity=math.min(1,.59+t/0.065)*math.min(1,e.life/0.19)
+                    paint(self,x+math.cos(a)*reach*0.52,y+math.sin(a)*reach*0.52,
+                        reach,e.r*(0.10+0.23*grow),vmath.vector4(1,1,1,opacity),
+                        e.kind==7 and "vfx_furnace" or "vfx_flame",math.deg(a),"weapon_fx","vfx")
+                end
+            end
+            for i=1,3 do
+                local t=math.max(0,age-i*0.045)
+                if t>0 and e.life>0.05 then
+                    local a=e.angle+(i-2)*0.30+math.sin(s.time*9+i)*0.12
+                    local reach=e.r*math.min(0.96,t/0.24)
+                    paint(self,x+math.cos(a)*reach,y+math.sin(a)*reach,
+                        3+i%2*2,3+i%2*2,vmath.vector4(1,0.54,0.19,math.min(0.8,e.life*2)),
+                        "white",nil,"weapon_fx","vfx")
+                end
+            end
+        elseif e.kind==4 or e.kind==8 then
+            local expand=math.min(1,age/0.24)
+            local size=e.r*(0.56+1.44*expand)
+            local opacity=math.min(1,.62+age/0.09)*math.min(1,e.life/0.24)
+            paint(self,x,y,size,size,vmath.vector4(1,1,1,opacity),
+                e.kind==8 and "vfx_pressure" or "vfx_steam",nil,"weapon_fx","vfx")
+            for i=1,8 do
+                local a=i*math.pi/4+math.sin(s.time*7+i*3)*0.10
+                local distance=e.r*(0.20+0.84*expand)
+                local puff=4+8*expand
+                paint(self,x+math.cos(a)*distance,y+math.sin(a)*distance+age*13,
+                    puff,puff,vmath.vector4(0.88,0.94,0.90,opacity*0.65),"white",nil,"weapon_fx","vfx")
+            end
+        elseif e.kind==11 then
+            local progress=1-e.life/e.total
+            if e.foe then
+                local boss_skin=dock_bosses.skin(s.arena,e.foe,e.elite)
+                local directional_skin=directional_roster.skin(s.arena,e.foe)
+                local skin=s.arena==1 and dock_enemies.skins[e.foe]
+                if boss_skin then
+                    local art,flipped=dock_bosses.idle(boss_skin,e)
+                    local center=y-boss_skin.foot_drop+boss_skin.center_above_foot-progress*6
+                    paint(self,x,center,boss_skin.size,boss_skin.size,vmath.vector4(1,.75,.49,1-progress),
+                        art,nil,"arena","dock_bosses",nil,flipped)
+                elseif directional_skin then
+                    local drop=s.arena==4 and directional_skin.rise*(e.elite and 1.17 or 1) or 14
+                    paint_directional_enemy(self,directional_roster,directional_skin,e,x,y-drop-progress*6,
+                        vmath.vector4(1,.75,.49,1-progress))
+                elseif skin then
+                    local side=skin.size*(e.elite and 1.17 or 1)
+                    local art,flipped=skin[7],(e.facing_x or -1)>0 and not skin.fixed
+                    if skin.rear then art,flipped=dock_enemies.directional_sprite(skin,e,7) end
+                    paint(self,x,y-11+side*25/80-progress*6,side,side,vmath.vector4(1,.75,.49,1-progress),
+                        art,nil,"arena","dock_enemies",nil,flipped)
+                else
+                    local side=e.foe==6 and 132 or e.elite and 106 or 84
+                    local art,atlas=foe_sprite(s.arena,e.foe,"death",math.min(2,math.floor(progress*3)))
+                    paint(self,x,y,side,side,fade,art,nil,"arena",atlas)
+                end
+            end
+            for i=1,8 do
+                local a=e.angle+i*math.pi/4
+                local spread=e.r*(0.3+progress*1.3)
+                paint(self,x+math.cos(a)*spread,y+math.sin(a)*spread,5,5,
+                    vmath.vector4(0.86,0.58,0.29,e.life/e.total),nil,math.deg(a),"arena")
+            end
+        elseif e.kind==10 and (not e.delay or e.delay<=0) then
+            local opacity=math.min(.9,e.life/.45,.16+age/.16)
+            local frame=e.evolved and 4+math.floor(s.time*6)%2 or 2+math.floor(s.time*6)%2
+            paint(self,x,y,e.r*2.15,e.r*2.15,vmath.vector4(1,1,1,opacity),
+                "acid_"..frame,math.sin(s.time*1.6)*14,"weapon_fx","arsenal")
+            threat_outline(self,"summon",x,y,e.r,opacity*.5)
+        end
+    end
+    finish_paint(self)
+    local actor_scale=1+(s.moving and 0.03 or 0.012)*math.sin(s.time*(s.moving and 13 or 3))
+    local actor_rise=s.arena==4 and bastion.actor_foot_offset*actor_scale or 0
+    gui.set_position(self.actor,vmath.vector3(CX+mix(s.px,s.x,alpha)-self.view_x,
+        CY+mix(s.py,s.y,alpha)-self.view_y+actor_rise,0))
+    gui.set_color(self.actor,s.invincible>0 and math.floor(s.time*22)%2==0 and TEAL or NEUTRAL)
+    gui.set_scale(self.actor,vmath.vector3(s.dir_x<0 and -1 or 1,
+        actor_scale,1))
+    actor(self,data.heroes[self.hero][2]..(s.moving and "_walk" or "_0"))
+    local time=clock(s.time)
+    if self.mode=="run" then time=time.."  ·  "..data.waves[s.wave][1] end
+    gui.set_text(self.time_text,time)
+    local hp=math.max(0,s.hp/s.max_hp)
+    local xp=math.min(1,s.xp/s.need)
+    gui.set_size(self.hp,vmath.vector3(math.max(1,366*hp),5,0))
+    gui.set_position(self.hp,vmath.vector3(33+183*hp,733-self.hud_inset,0))
+    gui.set_size(self.xp,vmath.vector3(math.max(1,366*xp),5,0))
+    gui.set_position(self.xp,vmath.vector3(33+183*xp,722-self.hud_inset,0))
+    gui.set_text(self.more,"Уровень "..s.level.."   ·   Побеждено "..s.kills)
+    local ids={}
+    local next_weapon,next_artifact=1,5
+    for id,rank in ipairs(s.weapon) do
+        if rank>0 then ids[next_weapon]=id;next_weapon=next_weapon+1 end
+    end
+    for id,rank in ipairs(s.artifact) do
+        if rank>0 then ids[next_artifact]=id+8;next_artifact=next_artifact+1 end
+    end
+    gui.set_text(self.weapon_count,"ОРУЖИЕ "..(next_weapon-1).."/4")
+    gui.set_text(self.artifact_count,"АРТЕФАКТЫ "..(next_artifact-5).."/4")
+    for i,slot in ipairs(self.inventory) do
+        local id=ids[i]
+        gui.set_enabled(slot.icon,id~=nil and hud_visible)
+        if id then
+            local evolved=id<=8 and s.evolved[id]
+            if slot.id~=id or slot.evolved~=evolved then
+                gui.play_flipbook(slot.icon,inventory_art(id,evolved))
+                slot.id,slot.evolved=id,evolved
+            end
+            local rank=id<=8 and s.weapon[id] or s.artifact[id-8]
+            gui.set_text(slot.rank,s.evolved[id] and id<=8 and "ЭВО" or rank.."/"..(id<=8 and data.weapon_max or data.artifact_max))
+            gui.set_color(slot.rank,id<=8 and s.evolved[id] and TEAL or WHITE)
+        else gui.set_text(slot.rank,"—") end
+    end
+    local alert=s.notice_until and s.notice_until>s.time and s.notice or ""
+    if alert=="" and s.boss and s.boss.hp>0 then alert=data.arena_foes[s.arena][6].." · "..math.ceil(s.boss.hp/s.boss.max_hp*100).."%" end
+    gui.set_text(self.banner,alert)
+    gui.set_enabled(self.perf_text,self.mode=="run" and self.diagnostics)
+    if self.diagnostics then
+        local enemies=string.format("%d/%d",#s.enemies,run.enemy_population(s))
+        gui.set_text(self.perf_text,string.format("FPS %d   ·   Враги %s   ·   Узлы %d",
+            self.perf.fps,enemies,self.used))
+    end
+end
+
+function update(self,dt)
+    local audio_mode=self.mode
+    if audio_mode=="sound_settings" then audio_mode=self.run and "pause" or "hangar" end
+    audio.update(self.audio,dt,audio_mode,self.arena,self.launch_scene and self.launch_scene.time)
+    if self.launch_scene then
+        update_launch(self,dt)
+    elseif self.mode=="hangar" then
+        update_hangar_fx(self,dt)
+    elseif self.mode=="chest" then
+        update_chest(self,dt)
+    elseif self.mode=="run" then
+        local p=self.perf
+        p.elapsed,p.frames=p.elapsed+dt,p.frames+1
+        p.peak_enemies=math.max(p.peak_enemies,#self.run.enemies)
+        if p.elapsed>=1 then
+            p.fps=math.floor(p.frames/p.elapsed+0.5)
+            if self.run.time>2 then p.lowest=math.min(p.lowest,p.fps) end
+            p.elapsed,p.frames=0,0
+        end
+        self.remainder=math.min(self.remainder+dt,STEP*5)
+        while self.remainder>=STEP and self.mode=="run" do
+            local mx=(self.keys.right and 1 or 0)-(self.keys.left and 1 or 0)
+            local my=(self.keys.up and 1 or 0)-(self.keys.down and 1 or 0)
+            if self.drag then mx,my=(self.drag.x-self.drag.ox)/41,(self.drag.y-self.drag.oy)/41 end
+            run.step(self.run,STEP,mx,my)
+            local state=self.run
+            if state.arena==3 and (state.y%express.period>=express.height)~=(state.py%express.period>=express.height) then
+                audio.play(self.audio,"coupling")
+            end
+            self.remainder=self.remainder-STEP
+            if self.run.mode=="level" then audio.play(self.audio,"level");show_level(self)
+            elseif self.run.mode=="chest" then show_chest(self)
+            elseif self.run.mode=="ended" then finish(self) end
+        end
+    end
+    if self.run then
+        local a=self.mode=="run" and self.remainder/STEP or 1
+        self.view_x=mix(self.run.px,self.run.x,a)
+        if self.run.arena==4 then
+            -- Reveal the propeller as the player approaches the stern.
+            local near_stern=math.max(0,1-self.view_x/144)
+            self.view_x=self.view_x-48*near_stern*near_stern
+        end
+        self.view_y=mix(self.run.py,self.run.y,a)
+        render(self,a)
+        if self.mode=="run" then self.perf.peak_nodes=math.max(self.perf.peak_nodes,self.used) end
+    else
+        render(self,1)
+    end
+end
+
+local KEYS={[hash("up")]="up",[hash("down")]="down",[hash("left")]="left",[hash("right")]="right"}
+local POINTER,PAUSE=hash("pointer"),hash("pause")
+function on_input(self,id,action)
+    if self.launch_reveal then return true end
+    local key=KEYS[id]
+    if key then
+        self.keys[key]=not action.released
+        return true
+    end
+    if id==PAUSE and action.pressed then
+        if self.mode=="run" then show_pause(self)
+        elseif self.mode=="pause" then clear_menu(self);self.mode="run" end
+        if self.mode=="build" then show_pause(self) end
+        if self.mode=="sound_settings" then
+            if self.run then show_pause(self) else show_hangar(self) end
+        end
+        return true
+    end
+    if action.x and self.drag then self.drag.x,self.drag.y=action.x,action.y end
+    if id~=POINTER then return end
+    if action.released then self.drag=nil;return true end
+    if not action.pressed then return end
+    for _, entry in ipairs(self.buttons) do
+        if gui.pick_node(entry.hit,action.x,action.y) then
+            audio.play(self.audio,"ui")
+            entry.action()
+            return true
+        end
+    end
+    if self.mode=="run" then
+        if gui.pick_node(self.pause_hit,action.x,action.y) then audio.play(self.audio,"ui");show_pause(self)
+        else self.drag={ox=action.x,oy=action.y,x=action.x,y=action.y} end
+        return true
+    end
+end

@@ -1,0 +1,6 @@
+images { image: "/art/dock_v21/vent_steam_0.png" }
+images { image: "/art/dock_v21/vent_steam_1.png" }
+images { image: "/art/dock_v21/vent_steam_2.png" }
+margin: 0
+extrude_borders: 2
+inner_padding: 2

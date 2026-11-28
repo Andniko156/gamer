@@ -1,0 +1,9 @@
+images { image: "/art/ui_panel.png" }
+images { image: "/art/ui_primary.png" }
+images { image: "/art/ui_secondary.png" }
+images { image: "/art/xp_small.png" }
+images { image: "/art/xp_medium.png" }
+images { image: "/art/xp_large.png" }
+margin: 2
+extrude_borders: 2
+inner_padding: 2

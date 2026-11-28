@@ -1,0 +1,4 @@
+sound: "/audio/interior.ogg"
+looping: 1
+group: "ambience"
+gain: 1.0

@@ -1,0 +1,10 @@
+images { image: "/art/express_modular/png/side_forest.png" }
+images { image: "/art/express_modular/png/side_city.png" }
+images { image: "/art/express_modular/png/side_river.png" }
+images { image: "/art/express_modular/png/river_glint.png" }
+images { image: "/art/express_modular/png/trackside_signal.png" }
+images { image: "/art/express_modular/png/express_track.png" }
+images { image: "/art/express_modular/png/express_track_bridge.png" }
+margin: 1
+extrude_borders: 2
+inner_padding: 1
