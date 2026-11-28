@@ -1,0 +1,39 @@
+images { image: "/art/bastion_modular/png/engine_wheel.png" }
+images { image: "/art/bastion_modular/png/engine_tank.png" }
+images { image: "/art/bastion_modular/png/cargo_pipe.png" }
+images { image: "/art/bastion_modular/png/helm_wheel.png" }
+images { image: "/art/bastion_modular/png/engine_nacelle.png" }
+images { image: "/art/bastion_modular/png/nacelle_support_left.png" }
+images { image: "/art/bastion_modular/png/nacelle_support_right.png" }
+images { image: "/art/bastion_modular/png/burner_grate.png" }
+images { image: "/art/bastion_modular/png/join_plate.png" }
+images { image: "/art/bastion_modular/png/join_ribs.png" }
+images { image: "/art/bastion_modular/png/join_bolt.png" }
+images { image: "/art/bastion_modular/png/join_threshold.png" }
+images { image: "/art/bastion_modular/png/join_rear_step.png" }
+images { image: "/art/bastion_modular/png/join_front.png" }
+images { image: "/art/bastion_modular/png/join_hull.png" }
+images { image: "/art/bastion_modular/png/deck_light.png" }
+images { image: "/art/bastion_modular/png/join_rear_straight.png" }
+images { image: "/art/bastion_modular/png/machine_glow.png" }
+images { image: "/art/bastion_modular/png/deck_wood.png" }
+images { image: "/art/bastion_modular/png/deck_steel.png" }
+images { image: "/art/bastion_modular/png/hull_plate.png" }
+images { image: "/art/bastion_modular/png/rail_rear.png" }
+images { image: "/art/bastion_modular/png/rail_front.png" }
+images { image: "/art/bastion_modular/png/hull_side.png" }
+images { image: "/art/bastion_modular/png/pennant.png" }
+images { image: "/art/bastion_modular/png/deck_lamp.png" }
+images { image: "/art/bastion_modular/png/crate_stack.png" }
+images { image: "/art/bastion_modular/png/pressure_barrel.png" }
+images { image: "/art/bastion_modular/png/steam_grate.png" }
+images { image: "/art/bastion_modular/png/helm_console.png" }
+images { image: "/art/bastion_modular/png/rope_winch.png" }
+images { image: "/art/bastion_modular/png/maintenance_hatch.png" }
+images { image: "/art/bastion_modular/png/steam_puff.png" }
+images { image: "/art/bastion_modular/png/scenery_sky.png" }
+images { image: "/art/bastion_modular/png/scenery_clouds.png" }
+images { image: "/art/bastion_modular/png/scenery_islands.png" }
+margin: 1
+extrude_borders: 2
+inner_padding: 0

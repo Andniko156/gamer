@@ -8,6 +8,8 @@ local express_enemies = require "game.express_enemies"
 local alley_enemies = require "game.alley_enemies"
 local alley = require "game.alley"
 local express = require "game.express"
+local bastion = require "game.bastion"
+local bastion_enemies = require "game.bastion_enemies"
 
 local WIDTH, HEIGHT = data.viewport.width, data.viewport.height
 local CX, CY = WIDTH/2, HEIGHT*data.viewport.hero_y
@@ -1005,6 +1007,129 @@ local function render_express(self,s)
     end
 end
 
+local function render_bastion(self, s)
+    local ox = CX - self.view_x
+    local oy = CY - self.view_y
+    local pad = self.view_padding
+    local art = "bastion_modular"
+    local left = -pad.x
+    local right = WIDTH + pad.x
+
+    local function strip(id, y, h, scroll, tint)
+        local width = 1280
+        local offset = scroll % width
+
+        for col = math.floor((left - offset) / width), math.floor((right - offset) / width) do
+            paint(self, offset + (col + 0.5) * width, y, width, h, tint or NEUTRAL, id, nil, "floor", art)
+        end
+    end
+
+    local ypan = self.view_y * 0.13
+
+    strip("scenery_sky", HEIGHT * 0.5, HEIGHT + pad.y * 2, -self.view_x * 0.1 - s.time * 3)
+    strip("scenery_islands", HEIGHT - 128 - ypan, 470 + pad.y, -self.view_x * 0.21 - s.time * 7, vmath.vector4(0.78, 0.83, 0.94, 0.64))
+    strip("scenery_clouds", 138 - ypan, 420 + pad.y * 2, -self.view_x * 0.37 - s.time * 15)
+
+    local width = bastion.width
+    local height = bastion.height
+    local gap = bastion.gap
+    local inset = bastion.join_inset
+    local insert_top = bastion.insert_top
+    local insert_h = bastion.insert_height
+    local top = oy + height / 2
+    local first = math.floor((left - ox - inset) / bastion.period)
+    local last = math.floor((right - ox + inset) / bastion.period)
+
+    for section = first, last do
+        local x = section * bastion.period + ox
+        local deck = bastion.deck(section)
+
+        local function place(id, u, v, w, h, layer, tint, flip_v, flip_h)
+            paint(self, x + u + w / 2, top - v - h / 2, w, h, tint or NEUTRAL, id, nil, layer, art, flip_v, flip_h)
+        end
+
+        local function lamp(u, v)
+            place("deck_light", u - 47, v - 26, 94, 58, "fixtures", vmath.vector4(1, 0.86, 0.62, 0.56))
+            place("deck_lamp", u - 12, v - 31, 24, 32, "fixtures")
+        end
+
+        for row = 0, 3 do
+            for col = 0, 2 do
+                place(deck.floor, col * 96 - 0.5, row * 88 - 0.5, 97, 89, "inlays")
+            end
+
+            place("join_plate", width - 0.5, row * 88 - 0.5, gap + 1, 89, "inlays")
+        end
+
+        for col = 0, 2 do
+            place("hull_plate", col * 96 - 0.5, height - 4, 97, 45, "inlays")
+        end
+
+        place("hull_plate", width - 0.5, height - 4, gap + 1, 45, "inlays")
+        place("hull_side", 0, height - 5, width, 43, "fixtures")
+        place("rail_rear", 0, -9, width, 22, "fixtures")
+        place("rail_front", 0, height - 22, width, 27, "alley_overhang")
+        place(deck.machinery and "join_rear_step" or "join_rear_straight", width - 2, -9, gap + 4, 22, "fixtures")
+        place("join_front", width - 2, height - 22, gap + 4, 27, "alley_overhang")
+        place("join_hull", width - 3, height - 5, gap + 6, 43, "alley_overhang")
+
+        local u = width - inset
+        local insert_w = gap + 2 * inset
+
+        place("join_ribs", u, insert_top, insert_w, insert_h, "fixtures")
+
+        for i, edge in ipairs({
+            u,
+            u + insert_w - 6
+        }) do
+            place("join_threshold", edge, insert_top, 6, insert_h, "fixtures")
+            place("join_bolt", edge - 3, insert_top - 3, 13, 13, "fixtures", nil, false, i == 1)
+            place("join_bolt", edge - 3, insert_top + insert_h - 10, 13, 13, "fixtures", nil, true, i == 1)
+        end
+
+        lamp(29, 35)
+        lamp(width - 51, height - 31)
+
+        if deck.console_glow then
+            local u, v = unpack(deck.console_glow)
+
+            place("machine_glow", u - 31, v - 13, 62, 49, "fixtures")
+        end
+
+        if deck.machinery then
+            place("nacelle_support_left", 40, height + 9, 89, 73, "arena")
+            place("nacelle_support_right", 159, height + 9, 89, 73, "arena")
+            place("engine_nacelle", width / 2 - 77, height + 26, 154, 124, "arena")
+
+            for _, u in ipairs({
+                56,
+                232
+            }) do
+                place("machine_glow", u - 38, 17, 76, 86, "fixtures")
+            end
+        end
+
+        for _, p in ipairs(deck.props) do
+            local id, u, v, w, h, pivot, solid = unpack(p)
+
+            place(id, u - w / 2, v - pivot, w, h, solid and "arena" or "fixtures")
+        end
+
+        if deck.vents then
+            for i, vent in ipairs(deck.vents) do
+                local phase = (s.time + section * 0.43 + i * 0.73) % 3.1
+
+                if phase < 1.6 then
+                    local u, v = unpack(vent)
+                    local a = math.sin(phase / 1.6 * math.pi) * 0.57
+
+                    paint(self, x + u + phase * 9, top - v + phase * 25, 32 + phase * 12, 43 + phase * 12, vmath.vector4(0.79, 0.88, 1, a), "steam_puff", nil, "weapon_fx", art)
+                end
+            end
+        end
+    end
+end
+
 local function render(self,alpha)
     gui.set_enabled(self.boss_direction,false)
     self.used=0
@@ -1032,14 +1157,7 @@ local function render(self,alpha)
     elseif s.arena==3 then
         render_express(self,s)
     elseif s.arena==4 then
-        local section=1600
-        local bx=math.floor(self.view_x/section+0.5)
-        local pad=self.view_padding
-        paint(self,CX,HEIGHT/2,WIDTH+pad.x*2,HEIGHT+pad.y*2,vmath.vector4(0.035,0.08,0.17,1),nil,nil,"floor")
-        for ix=bx-1,bx+1 do
-            paint(self,CX+ix*section-self.view_x,CY-self.view_y,section,533,
-                GROUND_TINT,"arena_design_bastion",nil,"floor","design_bastion")
-        end
+        render_bastion(self,s)
     end
     if s.arena==1 then
         local left,bottom=self.view_x-CX,self.view_y-CY
@@ -1140,7 +1258,7 @@ local function render(self,alpha)
             end
         end
     end
-    local directional_roster=s.arena==2 and alley_enemies or express_enemies
+    local directional_roster=s.arena==2 and alley_enemies or s.arena==4 and bastion_enemies or express_enemies
     for _,u in ipairs(s.enemies) do
         local x,y=CX+mix(u.px,u.x,alpha)-self.view_x,CY+mix(u.py,u.y,alpha)-self.view_y
         local boss_skin=dock_bosses.skin(s.arena,u.kind,u.elite)
@@ -1155,11 +1273,13 @@ local function render(self,alpha)
             foot_y=y-boss_skin.foot_drop
         elseif directional_skin then
             side=directional_skin.width*(u.elite and 1.17 or 1)
+            if s.arena==4 then foot_y=y-directional_skin.rise*(u.elite and 1.17 or 1) end
         elseif skin then
             side=skin.size*(u.elite and 1.17 or 1)
             foot_y=y-11
         end
-        paint(self,x,foot_y,side*.35,6,SHADOW)
+        local shadow=directional_skin and directional_skin.shadow
+        paint(self,x,foot_y,shadow and shadow*(u.elite and 1.17 or 1) or side*.35,6,SHADOW)
         if u.elite then paint(self,x,foot_y-12,42,5,GOLD) end
         if u.kind==6 and u.recover_until and u.recover_until>s.time then
             paint(self,x,y-15,60,14,vmath.vector4(.65,.94,.84,.72),"threat_ring",0,"arena","arsenal")
@@ -1339,7 +1459,8 @@ local function render(self,alpha)
                     paint(self,x,center,boss_skin.size,boss_skin.size,vmath.vector4(1,.75,.49,1-progress),
                         art,nil,"arena","dock_bosses",nil,flipped)
                 elseif directional_skin then
-                    paint_directional_enemy(self,directional_roster,directional_skin,e,x,y-14-progress*6,
+                    local drop=s.arena==4 and directional_skin.rise*(e.elite and 1.17 or 1) or 14
+                    paint_directional_enemy(self,directional_roster,directional_skin,e,x,y-drop-progress*6,
                         vmath.vector4(1,.75,.49,1-progress))
                 elseif skin then
                     local side=skin.size*(e.elite and 1.17 or 1)

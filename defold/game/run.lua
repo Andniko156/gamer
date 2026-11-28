@@ -4,6 +4,7 @@ local dock_collision = require "game.dock_collision"
 local dock_enemies = require "game.dock_enemies"
 local alley = require "game.alley"
 local express = require "game.express"
+local bastion = require "game.bastion"
 local M = {}
 local cos, sin, sqrt, floor, abs = math.cos, math.sin, math.sqrt, math.floor, math.abs
 local min, max, ceil = math.min, math.max, math.ceil
@@ -20,7 +21,7 @@ local function move_hero(s,x,y)
     end
     if s.alley then return alley.move(s.alley,s.x,s.y,x-s.x,y-s.y,dock_collision.hero_radius) end
     if s.arena==3 then return express.move(s.x,s.y,x-s.x,y-s.y,dock_collision.hero_radius) end
-    if s.arena==4 then y=max(-155,min(155,y)) end
+    if s.arena==4 then return bastion.move(s.x,s.y,x-s.x,y-s.y,dock_collision.hero_radius) end
     return x,y
 end
 
@@ -28,6 +29,7 @@ local function floor_position(s,x,y,radius)
     if s.dock then return dock_collision.nearby_floor(s.dock,x,y,radius) end
     if s.alley then return alley.nearby_floor(s.alley,x,y,radius) end
     if s.arena==3 then return express.floor_position(x,y,radius) end
+    if s.arena==4 then return bastion.floor_position(x,y,radius) end
     return x,y
 end
 
@@ -44,6 +46,8 @@ local function move_enemy(s,u,dx,dy)
         u.x,u.y=alley.move(s.alley,u.x,u.y,dx,dy,dock_collision.enemy_radius)
     elseif s.arena==3 then
         u.x,u.y=express.move(u.x,u.y,dx,dy,dock_collision.enemy_radius)
+    elseif s.arena==4 then
+        u.x,u.y=bastion.move(u.x,u.y,dx,dy,dock_collision.enemy_radius)
     else
         u.x,u.y=u.x+dx,u.y+dy
     end
@@ -62,7 +66,7 @@ end
 
 local function face_target(arena,u,dx,dy)
     local skin=arena==1 and dock_enemies.skins[u.kind]
-    if arena==2 or arena==3 or arena==1 and (u.kind==6 or skin and skin.rear) then
+    if arena~=1 or u.kind==6 or skin and skin.rear then
         dock_enemies.look_at(u,dx,dy)
     end
 end
@@ -79,6 +83,10 @@ local function enter_battle(s, unit, x, y)
     unit.x,unit.y,unit.px,unit.py=x,y,x,y
     unit.gait_phase=(x*.13+y*.07)%4
     face_target(s.arena,unit,s.x-x,s.y-y)
+    if s.arena==4 then
+        s.bastion_entry=(s.bastion_entry or -1)+1
+        unit.bastion_lane=(s.bastion_entry%3-1)*30
+    end
     s.enemies[#s.enemies+1]=unit
     return unit
 end
@@ -89,7 +97,6 @@ end
 
 local function ring_spawn(s, kind, distance, angle, elite)
     local x,y=s.x+distance*cos(angle),s.y+distance*sin(angle)
-    if s.arena==4 then y=max(-165,min(165,y)) end
     return spawn(s, kind, x, y, elite)
 end
 
@@ -114,7 +121,7 @@ local function wave_entry(s,kind,heading,order)
     if s.dock and kind==4 then margin=margin-d.enemy_entry_padding+d.dock_spawn.turret_entry_padding end
     local x=s.x+side*(half_width+pad.x+margin)
     local y=s.y+forward*64+(random(s)-.5)*224
-    if s.arena==4 then y=max(-165,min(165,y)) end
+    if s.arena==4 then return bastion.floor_position(x,y,12) end
     if s.dock and dock_collision.blocked(s.dock,x,y,12) then
         -- An open sector boundary keeps the entry clear without pushing it into view.
         local tile=dock_art.size
@@ -140,6 +147,7 @@ function M.new(hero, seed, doctrine, arena, view_padding)
     if arena==1 then s.dock=dock_art.new(seed) end
     if arena==2 then s.alley=alley.new(seed) end
     if arena==3 then s.y=express.height/2; s.py=s.y end
+    if arena==4 then s.x=bastion.start_x; s.px=s.x end
     s.weapon[hero]=1
     local angle=random(s)*tau
     for i=1,opening do
@@ -333,7 +341,7 @@ local function waves(s)
             for i=2,13 do
                 local a=f.angle+i*tau/15
                 local x,y=f.x+205*cos(a),f.y+205*sin(a)
-                if s.arena==3 then x=max(-145,min(145,x)) elseif s.arena==4 then y=max(-165,min(165,y)) end
+                if s.arena==3 then x=max(-145,min(145,x)) end
                 spawn(s,(f.kind==4 and i%3==0) and 3 or 1,x,y)
             end
         else
@@ -341,7 +349,7 @@ local function waves(s)
                 local a=f.angle+line*math.pi/2
                 for i=-4,4 do
                     local x,y=f.x+255*cos(a)-i*25*sin(a),f.y+255*sin(a)+i*25*cos(a)
-                    if s.arena==3 then x=max(-145,min(145,x)) elseif s.arena==4 then y=max(-165,min(165,y)) end
+                    if s.arena==3 then x=max(-145,min(145,x)) end
                     local u=spawn(s,2,x,y)
                     u.dash_x,u.dash_y,u.dash_until=-cos(a),-sin(a),s.time+3.8
                 end
@@ -615,7 +623,7 @@ end
 
 local function arena_position(s,x,y)
     if s.arena==3 then return express.floor_position(x,y,4) end
-    if s.arena==4 then y=max(-155,min(155,y)) end
+    if s.arena==4 then return bastion.floor_position(x,y,4) end
     return x,y
 end
 
@@ -757,12 +765,14 @@ local function enemy_move(s,u,dt)
         local flank=(role=="flank" or role=="flank_volley") and distance<165 and distance>38 and .68 or 0
         if distance>(stand and 155 or stats[4]+5) then
             local sx,sy=u.x,u.y
-            if s.alley or s.arena==3 then
+            if s.alley or s.arena==3 or s.arena==4 then
                 local tx,ty
                 if s.alley then
                     tx,ty=alley.route(s.alley,u.x,u.y,s.x,s.y)
-                else
+                elseif s.arena==3 then
                     tx,ty=express.route(u.x,u.y,s.x,s.y,dock_collision.enemy_radius)
+                else
+                    tx,ty=bastion.route(u.x,u.y,s.x,s.y,dock_collision.enemy_radius,flank,u.bastion_lane)
                 end
                 local dx,dy=tx-u.x,ty-u.y
                 local scale=min(1,dt*speed/max(.001,sqrt(dx*dx+dy*dy)))
@@ -794,6 +804,9 @@ local function enemy_move(s,u,dt)
             if (dx-mx*f)^2+(dy-my*f)^2<(attack.width+6)^2 then hurt(s,attack.damage) end
         elseif (dashing or not attack) and distance<(stats[4]+8) then
             if s.arena==3 and role=="flank" and s.invincible<=0 then u.attack_until=s.time+.23 end
+            if s.arena==4 and role=="flank" and s.invincible<=0 then
+                u.sky_action_rear,u.sky_action_at=u.look_rear,s.time
+            end
             hurt(s,stats[3])
         end
     end
@@ -809,6 +822,7 @@ local function enemy_move(s,u,dt)
                 v.hp=min(v.max_hp,v.hp+v.max_hp*.12)
                 local dx,dy=v.x-u.x,v.y-u.y
                 face_target(s.arena,u,dx,dy)
+                if s.arena==4 then u.sky_action_rear,u.sky_action_at=u.look_rear,s.time end
                 effect(s,"repair",(u.x+v.x)*.5,(u.y+v.y)*.5,sqrt(dx*dx+dy*dy),math.atan2(dy,dx))
                 u.attack_until=s.time+.23
                 break
@@ -1052,7 +1066,6 @@ function M.step(s,dt,mx,my)
         else
             u.px,u.py=u.x,u.y
             enemy_move(s,u,dt)
-            if s.arena==4 then u.y=max(-165,min(165,u.y)) end
             local gx,gy=floor(u.x/44),floor(u.y/44)
             local spacing_by_kind=separation[u.kind]
             local key=gx*131071+gy

@@ -20,7 +20,8 @@ textures { name: "alley_surfaces" texture: "/art/alley_surfaces.atlas" }
 textures { name: "elite_chest" texture: "/art/elite_chest.atlas" }
 textures { name: "express_modular" texture: "/art/express_modular/express_modular.atlas" }
 textures { name: "express_enemies" texture: "/art/express_enemies.atlas" }
-textures { name: "design_bastion" texture: "/art/arena_design_bastion.atlas" }
+textures { name: "bastion_modular" texture: "/art/bastion_modular/bastion_modular.atlas" }
+textures { name: "bastion_enemies" texture: "/art/bastion_enemies/poses.tilesource" }
 textures { name: "ui" texture: "/art/ui.atlas" }
 textures { name: "menu_art" texture: "/art/menu.atlas" }
 material: "/builtins/materials/gui.material"
