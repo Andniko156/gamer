@@ -1,4 +1,5 @@
 local run = require "game.run"
+local audio = require "game.audio"
 local data = require "game.data"
 local dock_art = require "game.dock_art"
 local dock_stream = require "game.dock_stream"
@@ -115,7 +116,7 @@ local function allowed(self,i)
         or (i==4 and (p.kills or 0)>=100) or (i==5 and p.won)
 end
 
-local show_hangar, show_level, show_pause, show_build, show_intro, finish, start
+local show_hangar, show_level, show_pause, show_build, show_intro, finish, start, show_sound_settings
 
 local function menu_floor(self)
     local floor=box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0.60,0.60,0.60,1))
@@ -213,6 +214,139 @@ local function hangar_selector(self,y,icon,caption,value,note,action)
     remember(self,label(385,y,">",21,GOLD))
 end
 
+local LAUNCH_WIDTH,LAUNCH_HEIGHT=350,712
+local LAUNCH_END=5.05
+local LAUNCH_GLINTS={{150,88,0},{135,121,1.9},{171,157,3.8}}
+local LAUNCH_GATE={left=107,right=243,top=466,bottom=597,start=2.18,duration=1.42}
+local LAUNCH_GATE_CUES={{LAUNCH_GATE.start-.15,"latch"},{LAUNCH_GATE.start,"gate"},
+    {LAUNCH_GATE.start+LAUNCH_GATE.duration,"shut"}}
+local LAUNCH_BUTTON_Y=143
+
+local function launch_ease(t)
+    t=math.max(0,math.min(1,t))
+    return t*t*t*(t*(6*t-15)+10)
+end
+
+local function show_launch(self)
+    self.mode="launch_wait"
+    gui.set_enabled(self.actor,false)
+    local scene={time=0,idle=0,doors={},smoke={},glints={}}
+    self.launch_scene=scene
+    scene.factory=remember(self,image_node(CX,HEIGHT/2,WIDTH,HEIGHT,"launch_art","factory_shot"))
+    for i,id in ipairs({"left_leaf","right_leaf"}) do
+        scene.doors[i]=remember(self,image_node(0,0,1,1,"launch_art",id))
+    end
+    for i=1,12 do
+        scene.smoke[i]={
+            mist=menu_image(self,0,0,1,1,"hangar_glow"),
+            wisps=remember(self,image_node(0,0,1,1,"dock_steam","vent_steam_"..((i-1)%3))),
+        }
+    end
+    for i=1,#LAUNCH_GLINTS do
+        scene.glints[i]={
+            halo=menu_image(self,0,0,1,1,"hangar_glow"),
+            h=remember(self,box(0,0,1,1,NEUTRAL)),
+            v=remember(self,box(0,0,1,1,NEUTRAL)),
+        }
+    end
+    local first=#self.menu+1
+    control(self,CX,LAUNCH_BUTTON_Y,234,58,"ИГРАТЬ",function()
+        self.mode="launch_movie"
+        self.buttons={}
+    end,true)
+    scene.controls={}
+    for i=first,#self.menu do
+        local node=self.menu[i]
+        scene.controls[#scene.controls+1]={node=node,color=gui.get_color(node)}
+    end
+    scene.black=remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0,0,0,0)))
+    gui.set_adjust_mode(scene.black,gui.ADJUST_STRETCH)
+end
+
+local function update_launch(self,dt)
+    local scene=self.launch_scene
+    local previous=scene.time
+    if self.mode=="launch_movie" then scene.time=scene.time+dt end
+    scene.idle=scene.idle+dt
+    local t=scene.time
+    local descend=launch_ease((t-.08)/2.32)
+    local entry=launch_ease((t-2.95)/2.10)
+    local visible_w,visible_h=WIDTH+2*self.view_padding.x,HEIGHT+2*self.view_padding.y
+    local cover=math.max(visible_w/LAUNCH_WIDTH,visible_h/LAUNCH_HEIGHT)
+    local sky_scale=math.max(cover,visible_h/250)
+    local scale=sky_scale*(1-descend)+cover*(1.16*descend+5.36*entry)
+    local half_w,half_h=visible_w/(2*scale),visible_h/(2*scale)
+    local target_x=167+8*descend
+    local target_y=133+269*descend+142*entry
+    local camera_x=math.max(half_w,math.min(LAUNCH_WIDTH-half_w,target_x))
+    local camera_y=math.max(half_h,math.min(LAUNCH_HEIGHT-half_h,target_y))
+
+    local function place(node,x,y,w,h)
+        gui.set_position(node,vmath.vector3(CX+(x-camera_x)*scale,HEIGHT/2+(camera_y-y)*scale,0))
+        gui.set_size(node,vmath.vector3(w*scale,h*scale,0))
+    end
+    place(scene.factory,LAUNCH_WIDTH/2,LAUNCH_HEIGHT/2,LAUNCH_WIDTH,LAUNCH_HEIGHT)
+
+    for _,entry in ipairs(LAUNCH_GATE_CUES) do
+        if previous<entry[1] and t>=entry[1] then audio.play(self.audio,entry[2]) end
+    end
+    local gate=LAUNCH_GATE
+    local opening=launch_ease((t-gate.start)/gate.duration)
+    local angle=math.rad(88)*opening
+    local width=(gate.right-gate.left)*.5*math.cos(angle)/(1+.25*math.sin(angle))
+    local center_y=(gate.top+gate.bottom)*.5
+    local shade=1-.28*math.sin(angle)
+    place(scene.doors[1],gate.left+width*.5,center_y,width,gate.bottom-gate.top)
+    place(scene.doors[2],gate.right-width*.5,center_y,width,gate.bottom-gate.top)
+    for _,node in ipairs(scene.doors) do
+        gui.set_color(node,vmath.vector4(shade,shade,shade,1))
+    end
+
+    for i,puff in ipairs(scene.smoke) do
+        local age=((scene.idle/5.4)+(i-1)/#scene.smoke)%1
+        local drift=math.sin(i*1.8)*5*age+math.sin(age*7+i)*4*age
+        local opacity=launch_ease(age/.14)*(1-launch_ease((age-.48)/.52))
+        local x,y=175+35*age+drift,290-226*age
+        place(puff.mist,x,y,12+62*age,18+64*age)
+        place(puff.wisps,x+drift*.5,y,12+54*age,12+47*age)
+        gui.set_rotation(puff.wisps,vmath.vector3(0,0,24+math.sin(i*2.3)*34+30*age))
+        gui.set_color(puff.mist,vmath.vector4(.24,.43,.46,.40*opacity))
+        gui.set_color(puff.wisps,vmath.vector4(.43,.67,.70,.25*opacity))
+    end
+
+    for i,glint in ipairs(scene.glints) do
+        local mark=LAUNCH_GLINTS[i]
+        local age=((scene.idle+mark[3])%5.8)/1.56
+        local pulse=launch_ease(age/.28)*(1-launch_ease((age-.28)/.72))
+        local x,y=mark[1]+2*math.min(1,age),mark[2]-math.min(1,age)
+        place(glint.halo,x,y,17+pulse*6,17+pulse*6)
+        place(glint.h,x,y,2+pulse*5,.62)
+        place(glint.v,x,y,.62,2+pulse*6)
+        gui.set_color(glint.halo,vmath.vector4(.46,1,.95,.45*pulse))
+        local color=vmath.vector4(.75,1,.99,pulse*.72)
+        gui.set_color(glint.h,color)
+        gui.set_color(glint.v,color)
+    end
+
+    local button_alpha=1-launch_ease(t/.32)
+    for _,control in ipairs(scene.controls) do
+        local color=control.color
+        gui.set_color(control.node,vmath.vector4(color.x,color.y,color.z,color.w*button_alpha))
+    end
+    gui.set_color(scene.black,vmath.vector4(0,0,0,launch_ease((t-4.44)/.61)))
+    if t>=LAUNCH_END then
+        self.launch_scene=nil
+        show_hangar(self)
+        local black=remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,vmath.vector4(0,0,0,1)))
+        gui.set_adjust_mode(black,gui.ADJUST_STRETCH)
+        self.launch_reveal=black
+        gui.animate(black,"color.w",0,gui.EASING_INOUTQUAD,.53,0,function()
+            gui.set_enabled(black,false)
+            self.launch_reveal=nil
+        end)
+    end
+end
+
 show_hangar=function(self)
     clear_menu(self)
     self.mode="hangar"
@@ -253,15 +387,16 @@ show_hangar=function(self)
     if can_start then
         local launch=remember(self,skin(CX,102,386,59,"ui_primary"))
         remember(self,label(CX,102,"НАЧАТЬ ВЫЛАЗКУ",22,INK))
-        self.buttons[#self.buttons+1]={hit=launch,action=function() start(self) end}
+        self.buttons[#self.buttons+1]={hit=launch,action=function()
+            if self.profile.tutorial_seen then start(self)
+            else show_intro(self,1,start) end
+        end}
     end
-    local help=remember(self,box(CX,44,228,44,vmath.vector4(0,0,0,0)))
-    remember(self,label(CX,44,"КАК ИГРАТЬ",15,WHITE))
-    remember(self,box(CX,31,104,1,GOLD))
-    self.buttons[#self.buttons+1]={hit=help,action=function() show_intro(self,1) end}
+    control(self,119,44,184,39,"Как играть",function() show_intro(self,1) end)
+    control(self,313,44,184,39,"Настройки звука",function() show_sound_settings(self) end)
 end
 
-show_intro=function(self,page)
+show_intro=function(self,page,done)
     clear_menu(self)
     self.mode="intro"
     menu_floor(self)
@@ -278,12 +413,17 @@ show_intro=function(self,page)
     remember(self,label(CX,534,chapter[1],25,GOLD))
     for i=2,4 do remember(self,label(CX,465-(i-2)*50,chapter[i],15,WHITE)) end
     remember(self,label(CX,291,page.." / 3",14,TEAL))
-    control(self,CX,224,320,52,page==3 and "В ангар" or "Далее",function()
-        if page<3 then show_intro(self,page+1)
-        else self.profile.tutorial_seen=true;save(self);show_hangar(self) end
+    local function finish_intro()
+        self.profile.tutorial_seen=true
+        save(self)
+        if done then done(self) else show_hangar(self) end
+    end
+    control(self,CX,224,320,52,page==3 and (done and "В бой" or "В ангар") or "Далее",function()
+        if page<3 then show_intro(self,page+1,done)
+        else finish_intro() end
     end,true)
     if page<3 then control(self,CX,159,320,38,"Пропустить",function()
-        self.profile.tutorial_seen=true;save(self);show_hangar(self)
+        finish_intro()
     end) end
 end
 
@@ -292,6 +432,9 @@ start=function(self)
     self.run_count=self.run_count+1
     local seed=os.time()+(self.run_count-1)*104729
     self.run=run.new(self.hero,seed,self.doctrine,self.arena,self.view_padding)
+    self.run.on_sound=function(state,kind,value,x,y)
+        audio.battle(self.audio,state,kind,value,x,y)
+    end
     if self.arena==1 then
         dock_stream.update(self.dock_stream,self.run.dock,self.run.x-CX,self.run.y-CY)
     else
@@ -398,12 +541,13 @@ local function show_chest(self)
     self.buttons[1]={hit=hit,action=function()
         if not scene.open then
             scene.open=true
+            audio.play(self.audio,"latch")
             self.buttons={}
             gui.set_enabled(hit,false)
             gui.set_enabled(caption,false)
         elseif scene.revealed and run.claim_chest(self.run) then
             self.remainder=0
-            if self.run.mode=="level" then show_level(self)
+            if self.run.mode=="level" then audio.play(self.audio,"level");show_level(self)
             else clear_menu(self);self.mode="run" end
         end
     end}
@@ -466,6 +610,12 @@ local function update_chest(self,dt)
     local distance=(REEL_WINNER-1)*REEL_PITCH*(1-(1-phase)^3)
     local slot=math.floor(distance/REEL_PITCH)+1
     local offset=distance%REEL_PITCH
+    if phase>=1 then
+        if not scene.stopped then audio.play(self.audio,"reel_stop");scene.stopped=true end
+    elseif slot~=scene.slot then
+        audio.play(self.audio,"reel",0,1,.91+slot*.014)
+        scene.slot=slot
+    end
     for i,v in ipairs(scene.slots) do
         local id=scene.items[slot+i-4]
         gui.set_enabled(v.plate,id~=nil)
@@ -478,6 +628,7 @@ local function update_chest(self,dt)
         end
     end
     if t>=REWARD_TIME then
+        audio.play(self.audio,scene.reward.evolved and "evolution" or "reward")
         scene.revealed=true
         gui.set_enabled(scene.slots[4].plate,false)
         gui.set_enabled(scene.slots[4].item,false)
@@ -500,12 +651,66 @@ show_pause=function(self)
     control(self,CX,326,320,48,self.diagnostics and "Диагностика: вкл" or "Диагностика: выкл",function()
         self.diagnostics=not self.diagnostics;show_pause(self)
     end)
+    control(self,CX,267,320,48,"Настройки звука",function() show_sound_settings(self) end)
     if self.diagnostics then
         local p=self.perf
-        remember(self,label(CX,287,string.format("FPS %d · минимум %d",p.fps,p.lowest==math.huge and 0 or p.lowest),12,TEAL))
-        remember(self,label(CX,265,"Врагов "..p.peak_enemies.." · узлов "..p.peak_nodes,12,WHITE))
+        remember(self,label(CX,223,string.format("FPS %d · минимум %d",p.fps,p.lowest==math.huge and 0 or p.lowest),12,TEAL))
+        remember(self,label(CX,203,"Врагов "..p.peak_enemies.." · узлов "..p.peak_nodes,12,WHITE))
     end
-    control(self,CX,215,320,48,"Завершить вылазку",function() finish(self) end)
+    control(self,CX,168,320,48,"Завершить вылазку",function() finish(self) end)
+end
+
+local SOUND_ROWS={{"master","Общая громкость"},{"effects","Звуковые эффекты"},{"ambience","Звуки окружения"}}
+
+local function save_audio(self)
+    audio.apply_settings(self.audio)
+    self.profile.audio=self.audio.settings
+    save(self)
+end
+
+show_sound_settings=function(self)
+    clear_menu(self)
+    self.mode,self.drag="sound_settings",nil
+    local backdrop=remember(self,box(CX,HEIGHT/2,WIDTH,HEIGHT,
+        self.run and vmath.vector4(.02,.03,.04,.68) or MENU_INK))
+    gui.set_adjust_mode(backdrop,gui.ADJUST_STRETCH)
+    menu_image(self,CX,HEIGHT/2,390,488,"upgrade_panel")
+    remember(self,label(CX,585,"НАСТРОЙКИ ЗВУКА",26,GOLD,"upgrade_title"))
+    local settings=self.audio.settings
+    for i,row in ipairs(SOUND_ROWS) do
+        local key,caption=row[1],row[2]
+        local y=501-(i-1)*82
+        left_label(self,65,y+21,caption,17,WHITE)
+        local value=remember(self,label(365,y+21,"",16,GOLD))
+        remember(self,box(CX,y-10,184,9,PANEL))
+        local fill=remember(self,box(124,y-10,184,9,TEAL))
+        gui.set_pivot(fill,gui.PIVOT_W)
+        local function redraw()
+            gui.set_text(value,settings[key].."%")
+            gui.set_size(fill,vmath.vector3(184*settings[key]/100,9,0))
+            gui.set_enabled(fill,settings[key]>0)
+        end
+        local function change(delta)
+            local previous=settings[key]
+            settings[key]=math.max(0,math.min(100,previous+delta))
+            if previous==settings[key] then return end
+            save_audio(self)
+            redraw()
+            if previous==0 and key~="ambience" then audio.play(self.audio,"ui") end
+        end
+        control(self,86,y-10,49,40,"−",function() change(-10) end)
+        control(self,346,y-10,49,40,"+",function() change(10) end)
+        redraw()
+    end
+    control(self,CX,261,304,43,settings.muted and "Включить звук" or "Выключить звук",function()
+        settings.muted=not settings.muted
+        save_audio(self)
+        if not settings.muted then audio.play(self.audio,"ui") end
+        show_sound_settings(self)
+    end)
+    control(self,CX,192,304,50,"Назад",function()
+        if self.run then show_pause(self) else show_hangar(self) end
+    end,true)
 end
 
 show_build=function(self,selected)
@@ -556,6 +761,7 @@ finish=function(self)
     clear_menu(self)
     self.mode,self.drag="ended",nil
     local s,p=self.run,self.profile
+    audio.play(self.audio,s.won and "victory" or "defeat")
     p.time,p.level=math.max(p.time or 0,s.time),math.max(p.level or 0,s.level)
     p.kills=(p.kills or 0)+s.kills
     p.won=p.won or s.won or false
@@ -599,6 +805,7 @@ end
 function init(self)
     msg.post(".","acquire_input_focus")
     self.profile=sys.load(sys.get_save_file("latunnaya_noch","profile"))
+    self.audio=audio.new(self.profile.audio)
     self.menu,self.buttons,self.keys,self.pool={},{},{},{}
     self.previous_used=0
     self.hero,self.doctrine,self.arena,self.remainder,self.diagnostics=1,1,1,0,false
@@ -610,8 +817,11 @@ function init(self)
     self.view_padding={x=0,y=0}
     window.set_listener(function(_,event)
         if event==window.WINDOW_EVENT_FOCUS_LOST then
+            self.audio.focused=false
             self.keys,self.drag={},nil
             if self.mode=="run" then show_pause(self) end
+        elseif event==window.WINDOW_EVENT_FOCUS_GAINED then
+            self.audio.focused=true
         elseif event==window.WINDOW_EVENT_RESIZED then
             update_window_layout(self)
         end
@@ -658,8 +868,7 @@ function init(self)
         if n~=self.banner and n~=self.perf_text then gui.set_yanchor(n,gui.ANCHOR_TOP) end
     end
     update_window_layout(self)
-    show_hangar(self)
-    if not self.profile.tutorial_seen then show_intro(self,1) end
+    show_launch(self)
 end
 
 local function finish_paint(self)
@@ -833,18 +1042,77 @@ local function paint_directional_enemy(self, roster, skin, u, x, foot_y, tint, t
     local scale = u.elite and 1.17 or 1
     local art, flipped = roster.pose(skin,u,time)
     paint(self,x,foot_y+skin.rise*scale,skin.width*scale,skin.height*scale,tint,
-        art,nil,"arena",roster.atlas,nil,flipped)
+        art,nil,time and u.kind==6 and "boss" or "arena",roster.atlas,nil,flipped)
 end
 
-local ALLEY_CURB=vmath.vector4(.49,.43,.33,1)
-local ALLEY_STONE=vmath.vector4(.76,.67,.52,1)
-local ALLEY_LAMP=vmath.vector4(1,.60,.24,.45)
-local ALLEY_REFLECTION=vmath.vector4(1,.58,.23,.27)
-local ALLEY_SHADOW=vmath.vector4(.06,.08,.10,.46)
-local ALLEY_CONTACT=vmath.vector4(.012,.018,.02,.72)
-local ALLEY_GUTTER=vmath.vector4(.10,.17,.19,.78)
-local ALLEY_GUTTER_EDGE=vmath.vector4(.57,.48,.33,.62)
-local ALLEY_FACADES={"facade_1","facade_2","facade_3","facade_4"}
+local ALLEY_CURB=vmath.vector4(.43,.42,.39,1)
+local ALLEY_LIP=vmath.vector4(.60,.56,.47,1)
+local ALLEY_GUTTER=vmath.vector4(.12,.20,.24,.84)
+local ALLEY_CONTACT=vmath.vector4(.025,.035,.05,.20)
+local ALLEY_BRICK=vmath.vector4(.58,.58,.62,1)
+
+local function render_alley_frontage(self,house,ox,oy)
+    local side=house.side
+    local front=math.abs(house.front)
+    local p=house.passage
+    local road=front-4
+    local floor_y=(p.south+p.north)*.5+oy
+    local floor_h=p.north-p.south
+    local center=house.base+house.h*.5+oy
+    local entrance_end=p.gate_depth+17
+
+    paint(self,ox+side*road,center,4,house.h,ALLEY_CURB,nil,nil,"inlays")
+    paint(self,ox+side*(road-4),center,3,house.h,ALLEY_GUTTER,nil,nil,"inlays")
+
+    -- The road tile continues through the entrance. Shadows stay on the
+    -- wall returns so the opening has no rectangular overlay.
+    local pavement_w=entrance_end-road
+    for _,edge in ipairs({p.south,p.north}) do
+        local y=edge+oy
+        local wall_w=entrance_end-p.wall
+        local wall_offset=edge==p.south and -4 or 4
+        paint(self,ox+side*(road+pavement_w*.5),y-wall_offset,pavement_w,7,
+            ALLEY_CONTACT,nil,nil,"inlays")
+        paint(self,ox+side*(p.wall+wall_w*.5),y+wall_offset,wall_w,8,
+            ALLEY_BRICK,"brick",nil,"fixtures","alley_surfaces")
+        paint(self,ox+side*(road+pavement_w*.5),y,pavement_w,4,ALLEY_CURB,nil,nil,"fixtures")
+        paint(self,ox+side*(road+pavement_w*.5),y+1,pavement_w,1,ALLEY_LIP,nil,nil,"fixtures")
+        paint(self,ox+side*road,y,7,7,ALLEY_CURB,nil,nil,"fixtures")
+    end
+
+    paint(self,house.front+side*house.w*.5+ox,center,house.w,house.h,
+        NEUTRAL,"house_"..house.kind,nil,"fixtures","alley_buildings",nil,side>0)
+    -- The source PNG extends 18 units above its north foot and 4 below its south foot.
+    paint(self,ox+side*p.gate_depth,floor_y+7,20,floor_h+22,
+        NEUTRAL,"side_gate",nil,"fixtures","alley_buildings",nil,side>0)
+end
+
+local ALLEY_LAMP_ART={
+    {"street_lamp_1",23.4,59.4,18,37.8,4.5},
+    {"street_lamp_2",24.3,60.3,19.35,37.8,5.4},
+}
+
+local function render_alley_lamp(self,house,ox,oy,time)
+    local lamp=house.lamp
+    local art=ALLEY_LAMP_ART[lamp.variant]
+    local id,w,h,pivot,glass_height,glass_x=art[1],art[2],art[3],art[4],art[5],art[6]
+    local side=house.side
+    local x,y=lamp.x+ox,lamp.y+oy
+    local glow_x=x+side*(glass_x-pivot)
+    local glow_y=y+glass_height
+    local pulse=1+.055*math.sin(time*2.8+lamp.y*.047)+.028*math.sin(time*7.2+lamp.x)
+    local shade=vmath.vector4(.05,.028,.018,.40)
+    local ground=vmath.vector4(1,.60,.29,.58*pulse)
+    local center=vmath.vector4(1,.73,.40,.38*pulse)
+    local halo=vmath.vector4(1,.59,.23,.54*pulse)
+    local core=vmath.vector4(1,.78,.41,.46*pulse)
+    paint(self,glow_x-side*13,y+2,130,85,ground,"hangar_glow",nil,"alley_lamp_floor","menu_art")
+    paint(self,glow_x-side*7,y+1,74,45,center,"hangar_glow",nil,"alley_lamp_floor","menu_art")
+    paint(self,x,y-1,20,9,shade,"hangar_glow",nil,"alley_lamp_floor","menu_art")
+    paint(self,x+side*(w*.5-pivot),y+h*.5,w,h,NEUTRAL,id,nil,"fixtures","alley_buildings",nil,side<0)
+    paint(self,glow_x,glow_y,46,46,halo,"hangar_glow",nil,"alley_lamp_glow","menu_art")
+    paint(self,glow_x,glow_y,19,20,core,"hangar_glow",nil,"alley_lamp_glow","menu_art")
+end
 
 local function render_alley(self,s)
     local ox,oy=CX-self.view_x,CY-self.view_y
@@ -858,66 +1126,18 @@ local function render_alley(self,s)
             paint(self,(col+.5)*tile+ox,y,tile+1,tile+1,NEUTRAL,"cobble",nil,"floor","alley_surfaces")
         end
     end
-    for row=math.floor((bottom-110)/alley.height),math.floor((top+50)/alley.height) do
+    for row=math.floor((bottom-alley.height)/alley.height),math.floor((top+alley.height)/alley.height) do
         local section=alley.section(s.alley,row)
-        local previous=alley.section(s.alley,row-1)
-        local y=section.y+alley.height*.5+oy
-        for side=-1,1,2 do
-            local edge=side<0 and section.left or section.right
-            local outer=side<0 and math.floor((edge-left)/tile) or math.floor((right-edge)/tile)
-            for col=0,outer do
-                local x=edge+side*(col*tile+tile*.5)+ox
-                for j=-1,1 do
-                    paint(self,x,y+j*80,tile+1,81,GROUND_TINT,"roof",nil,"inlays","alley_surfaces")
-                end
-            end
-            local x=edge+ox
-            local variant=(row+s.alley.seed+side*3+math.floor(row/5))%#ALLEY_FACADES+1
-            paint(self,x+side*32,y,66,alley.height+3,NEUTRAL,ALLEY_FACADES[variant],nil,"fixtures","alley_props",nil,side>0)
-            paint(self,x-side*2,y,3,alley.height,ALLEY_CURB,nil,nil,"inlays")
-            paint(self,x-side*6,y,5,alley.height,ALLEY_SHADOW,nil,nil,"inlays")
-            paint(self,x-side*14,y,5,alley.height+1,ALLEY_GUTTER,nil,nil,"inlays")
-            paint(self,x-side*17,y,1,alley.height+1,ALLEY_GUTTER_EDGE,nil,nil,"inlays")
-            local previous_edge=side<0 and previous.left or previous.right
-            local step=math.abs(edge-previous_edge)
-            if step>0 then
-                local junction=(edge+previous_edge)*.5+ox
-                paint(self,junction,section.y+oy,step+4,4,ALLEY_CURB,nil,nil,"inlays")
-                paint(self,junction,section.y+oy+2,step+4,7,ALLEY_SHADOW,nil,nil,"inlays")
-                paint(self,junction-side*14,section.y+oy-3,step+4,4,ALLEY_GUTTER,nil,nil,"inlays")
-            end
-            paint(self,x-side*22,y-38,111,113,ALLEY_REFLECTION,"hangar_glow",nil,"inlays","menu_art")
-            if variant==1 or variant==3 then
-                paint(self,x-side*22,y+52,104,97,ALLEY_REFLECTION,"hangar_glow",nil,"inlays","menu_art")
-            end
-        end
-        if section.island then
-            local x=section.island+ox
-            paint(self,x,y,53,96,NEUTRAL,"roof",nil,"fixtures","alley_surfaces")
-            paint(self,x,y-37,53,22,NEUTRAL,"brick",nil,"fixtures","alley_surfaces")
-            paint(self,x,y-36,44,55,NEUTRAL,"brick_window",nil,"fixtures","alley_props")
-            paint(self,x,y-50,55,5,ALLEY_SHADOW,nil,nil,"inlays")
-        end
-        local inlay=section.inlay
-        if inlay then
-            paint(self,inlay.x+ox,inlay.y+oy,inlay.w,inlay.h,
-                inlay.kind=="workshop" and ALLEY_STONE or GROUND_TINT,"sidewalk",nil,"inlays","alley_surfaces")
+        for _,house in ipairs(section.houses) do
+            render_alley_frontage(self,house,ox,oy)
+            render_alley_lamp(self,house,ox,oy,s.time)
         end
         for _,d in ipairs(section.decals) do
             paint(self,d.x+ox,d.y+oy,d.w,d.h,NEUTRAL,d.id,d.angle,"inlays","alley_props")
         end
-        for _,l in ipairs(section.lights) do
-            paint(self,l.x+ox,l.y+oy,l.w,l.h,ALLEY_LAMP,"hangar_glow",nil,"inlays","menu_art")
-        end
-        for _,p in ipairs(section.props) do
-            if p.shadow then
-                paint(self,p.x+ox,p.foot+oy-2,p.shadow*2.7,30,ALLEY_CONTACT,"hangar_glow",nil,"inlays","menu_art")
-            end
-            paint(self,p.x+ox,p.y+oy,p.w,p.h,NEUTRAL,p.id,nil,p.layer,"alley_props")
-        end
         if section.vent_x then
             local x,vy=section.vent_x+ox,section.vent_y+oy
-            local state=run.vent_phase(s.time,row%4)
+            local state=run.vent_phase(s.time,section.vent_phase)
             if state=="warning" then threat_outline(self,"steam",x,vy,data.vents.radius,.72)
             elseif state=="active" then
                 local phase=(s.time*2+row*.19)%1
@@ -1199,17 +1419,23 @@ local function render(self,alpha)
     end
     if self.mode=="run" then
         local target,priority,distance=nil,math.huge,math.huge
-        local boss=s.arena==3 and s.boss
+        local boss=s.boss
         if boss and boss.hp>0 then
             local x,y=CX+boss.x-self.view_x,CY+boss.y-self.view_y
             if x<32 or x>WIDTH-32 or y<123 or y>632 then
                 -- Once the Stoker leaves the viewport, point along the
                 -- corridor to the next coupling, not across the end wall.
-                local edge=boss.y>s.y and 632 or 123
-                paint(self,CX,edge,26,26,GOLD,"enemy_arc",boss.y>s.y and 90 or -90,"overlay","arsenal")
-                local name=data.arena_foes[3][6]
+                local dx,dy=x-CX,y-CY
+                local edge_y=dy>0 and 632 or 123
+                if s.arena==3 then dx,dy=0,edge_y-CY end
+                local fraction=math.min(1,184/math.max(1,math.abs(dx)),
+                    math.abs(edge_y-CY)/math.max(1,math.abs(dy)))
+                x,y=CX+dx*fraction,CY+dy*fraction
+                paint(self,x,y,26,26,GOLD,"enemy_arc",math.deg(math.atan2(dy,dx)),"overlay","arsenal")
+                local name=data.arena_foes[s.arena][6]
                 gui.set_text(self.boss_direction,name)
-                gui.set_position(self.boss_direction,vmath.vector3(CX,edge+(boss.y>s.y and -23 or 23),0))
+                gui.set_position(self.boss_direction,vmath.vector3(math.max(100,math.min(WIDTH-100,x)),
+                    y+(dy>0 and -23 or 23),0))
                 gui.set_enabled(self.boss_direction,true)
                 target=boss
             end
@@ -1287,7 +1513,8 @@ local function render(self,alpha)
         if boss_skin then
             local art,flipped=dock_bosses.pose(boss_skin,u,s.time)
             local tint=(u.flash or 0)>0 and TEAL or NEUTRAL
-            paint(self,x,foot_y+boss_skin.center_above_foot,side,side,tint,art,nil,"arena","dock_bosses",nil,flipped)
+            paint(self,x,foot_y+boss_skin.center_above_foot,side,side,tint,art,nil,
+                u.kind==6 and "boss" or "arena","dock_bosses",nil,flipped)
         elseif directional_skin then
             local tint=(u.flash or 0)>0 and TEAL or NEUTRAL
             if u.spawn_until and u.spawn_until>s.time then
@@ -1327,7 +1554,13 @@ local function render(self,alpha)
                 state,frame="move",math.floor(wrapping)%4
             end
             local art,atlas=foe_sprite(s.arena,u.kind,state,frame)
-            paint(self,x,y,side,side,NEUTRAL,art,nil,"arena",atlas)
+            paint(self,x,y,side,side,NEUTRAL,art,nil,u.kind==6 and "boss" or "arena",atlas)
+        end
+        if u.kind==6 and u.hp>0 then
+            local hp=math.min(1,u.hp/u.max_hp)
+            local bar_y=y+side*.41
+            paint(self,x,bar_y,66,9,INK,nil,nil,"boss")
+            paint(self,x-31+31*hp,bar_y,62*hp,5,GOLD,nil,nil,"boss")
         end
     end
     for _,p in ipairs(s.shots) do
@@ -1540,7 +1773,12 @@ local function render(self,alpha)
 end
 
 function update(self,dt)
-    if self.mode=="hangar" then
+    local audio_mode=self.mode
+    if audio_mode=="sound_settings" then audio_mode=self.run and "pause" or "hangar" end
+    audio.update(self.audio,dt,audio_mode,self.arena,self.launch_scene and self.launch_scene.time)
+    if self.launch_scene then
+        update_launch(self,dt)
+    elseif self.mode=="hangar" then
         update_hangar_fx(self,dt)
     elseif self.mode=="chest" then
         update_chest(self,dt)
@@ -1559,8 +1797,12 @@ function update(self,dt)
             local my=(self.keys.up and 1 or 0)-(self.keys.down and 1 or 0)
             if self.drag then mx,my=(self.drag.x-self.drag.ox)/41,(self.drag.y-self.drag.oy)/41 end
             run.step(self.run,STEP,mx,my)
+            local state=self.run
+            if state.arena==3 and (state.y%express.period>=express.height)~=(state.py%express.period>=express.height) then
+                audio.play(self.audio,"coupling")
+            end
             self.remainder=self.remainder-STEP
-            if self.run.mode=="level" then show_level(self)
+            if self.run.mode=="level" then audio.play(self.audio,"level");show_level(self)
             elseif self.run.mode=="chest" then show_chest(self)
             elseif self.run.mode=="ended" then finish(self) end
         end
@@ -1579,6 +1821,7 @@ end
 local KEYS={[hash("up")]="up",[hash("down")]="down",[hash("left")]="left",[hash("right")]="right"}
 local POINTER,PAUSE=hash("pointer"),hash("pause")
 function on_input(self,id,action)
+    if self.launch_reveal then return true end
     local key=KEYS[id]
     if key then
         self.keys[key]=not action.released
@@ -1588,6 +1831,9 @@ function on_input(self,id,action)
         if self.mode=="run" then show_pause(self)
         elseif self.mode=="pause" then clear_menu(self);self.mode="run" end
         if self.mode=="build" then show_pause(self) end
+        if self.mode=="sound_settings" then
+            if self.run then show_pause(self) else show_hangar(self) end
+        end
         return true
     end
     if action.x and self.drag then self.drag.x,self.drag.y=action.x,action.y end
@@ -1595,10 +1841,14 @@ function on_input(self,id,action)
     if action.released then self.drag=nil;return true end
     if not action.pressed then return end
     for _, entry in ipairs(self.buttons) do
-        if gui.pick_node(entry.hit,action.x,action.y) then entry.action();return true end
+        if gui.pick_node(entry.hit,action.x,action.y) then
+            audio.play(self.audio,"ui")
+            entry.action()
+            return true
+        end
     end
     if self.mode=="run" then
-        if gui.pick_node(self.pause_hit,action.x,action.y) then show_pause(self)
+        if gui.pick_node(self.pause_hit,action.x,action.y) then audio.play(self.audio,"ui");show_pause(self)
         else self.drag={ox=action.x,oy=action.y,x=action.x,y=action.y} end
         return true
     end

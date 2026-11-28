@@ -1,0 +1,4 @@
+sound: "/audio/boss_train.wav"
+looping: 0
+group: "effects"
+gain: 1.0

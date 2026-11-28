@@ -31,7 +31,8 @@ for _,direction in ipairs({1,-1}) do
         s.shots={fired(x,y1,0,direction*445,25,1,1)}
         s.enemy_shots={{x=x,y=y2,px=x,py=y2,vx=0,vy=-direction*265,radius=10,damage=20,life=1}}
         for _=1,42 do run.step(s,dt,0,0) end
-        assert(u.hp==(x==0 and 75 or 100) and #s.shots==0,"hero shot must respect the end wall")
+        assert(u.hp==(x==0 and 100-25*data.balance.weapon_damage_scale or 100) and #s.shots==0,
+            "hero shot must respect the end wall")
         assert(math.abs(s.hp-(x==0 and 100-20*data.balance.arena_damage[3]*data.balance.enemy_damage[1] or 100))<1e-6 and #s.enemy_shots==0,"enemy shot must respect the end wall")
     end
 end
@@ -63,7 +64,7 @@ do
     run.step(s,dt,0,0)
     local arcs=0
     for _,e in ipairs(s.effects) do if e.kind==6 then arcs=arcs+1 end end
-    assert(a.hp==190 and b.hp<=0 and c.hp==300 and p.pierce==7 and arcs==1)
+    assert(a.hp==300-110*data.balance.weapon_damage_scale and b.hp<=0 and c.hp==300 and p.pierce==7 and arcs==1)
 end
 
 local function saturated_cast(index)

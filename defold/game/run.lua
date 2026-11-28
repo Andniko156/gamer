@@ -78,14 +78,15 @@ end
 local function new_enemy(s, kind, x, y, elite)
     local stats = d.foes[kind]
     local scale=kind==6 and balance.boss_health or (1+s.time/770)*ramp(balance.enemy_health,s.pressure)
-    local hp=stats[1]*scale*(elite and 2.5 or 1)
+    local hp=stats[1]*scale*(elite and 2.5 or 1)*balance.enemy_health_scale
     return {kind=kind, x=x, y=y, hp=hp, elite=elite, max_hp=hp,
         interval=s.time+1.3+random(s)*1.6}
 end
 
-local function enter_battle(s, unit, x, y)
-    x,y=floor_position(s,x,y,12)
+local function enter_battle(s, unit, x, y, landing_y)
+    if not landing_y then x,y=floor_position(s,x,y,12) end
     unit.x,unit.y,unit.px,unit.py=x,y,x,y
+    unit.landing_y=landing_y
     unit.gait_phase=(x*.13+y*.07)%4
     face_target(s.arena,unit,s.x-x,s.y-y)
     if s.arena==4 then
@@ -96,8 +97,8 @@ local function enter_battle(s, unit, x, y)
     return unit
 end
 
-local function spawn(s, kind, x, y, elite)
-    return enter_battle(s,new_enemy(s,kind,x,y,elite),x,y)
+local function spawn(s, kind, x, y, elite, landing_y)
+    return enter_battle(s,new_enemy(s,kind,x,y,elite),x,y,landing_y)
 end
 
 local function ring_spawn(s, kind, distance, angle, elite)
@@ -109,28 +110,44 @@ local half_width=d.viewport.width/2
 local lower_edge=d.viewport.height*d.viewport.hero_y
 local upper_edge=d.viewport.height-lower_edge
 
-local function wave_entry(s,kind,heading,order)
-    local sideways,forward=cos(heading),sin(heading)
+local function wave_entry(s,kind,order,heading)
+    local corridor=s.alley or s.arena==3
+    local horizontal=not corridor
     local side=order%2==0 and -1 or 1
-    local pad=s.view_padding
-    local margin=d.enemy_entry_padding+8+random(s)*24
-    if s.alley or s.arena==3 then
-        -- Both corridors admit reinforcements through their far ends.
+    -- Fixed turrets use the nearer sides. The starboard and port railings
+    -- of the airship are crossed only by incoming airborne enemies.
+    if not heading and (s.dock and kind~=4 or s.arena==4) then
+        horizontal=order%2==1
+        side=(order-1)%4<2 and 1 or -1
+    elseif heading then
+        local dx,dy=cos(heading),sin(heading)
+        if s.dock and kind~=4 then horizontal=abs(dx)>=abs(dy) end
+        local forward=horizontal and dx or dy
         if abs(forward)>.2 then side=forward<0 and -1 or 1 end
-        local x=max(-145,min(145,s.x+sideways*42+(random(s)-.5)*230))
-        local y=s.y+side*((side<0 and lower_edge or upper_edge)+pad.y+margin)
-        return floor_position(s,x,y,12)
     end
-    if s.dock and s.moving and abs(s.dir_x)>.5 then side=s.dir_x<0 and -1 or 1
-    elseif not s.dock and abs(sideways)>.2 then side=sideways<0 and -1 or 1 end
-    if s.dock and kind==4 then margin=margin-d.enemy_entry_padding+d.dock_spawn.turret_entry_padding end
-    local x=s.x+side*(half_width+pad.x+margin)
-    local y=s.y+forward*64+(random(s)-.5)*224
-    if s.arena==4 then return bastion.floor_position(x,y,12) end
+
+    local pad=s.view_padding
+    local base_margin=s.dock and kind==4 and d.dock_spawn.turret_entry_padding or d.enemy_entry_padding
+    local margin=base_margin+8+random(s)*24
+    local offset=random(s)-.5
+    local x,y
+    if horizontal then
+        x=s.x+side*(half_width+pad.x+margin)
+        y=s.y+offset*144
+    else
+        x=s.x+offset*(s.arena==4 and 252 or 144)
+        y=s.y+side*((side<0 and lower_edge or upper_edge)+pad.y+margin)
+    end
+    if corridor then return floor_position(s,max(-145,min(145,x)),y,12) end
+    if s.arena==4 then
+        if horizontal then return bastion.floor_position(x,y,12) end
+        local landing_x,landing_y=bastion.floor_position(x,side*bastion.height/2,12)
+        return landing_x,y,landing_y
+    end
     if s.dock and dock_collision.blocked(s.dock,x,y,12) then
-        -- An open sector boundary keeps the entry clear without pushing it into view.
+        -- Use the open sector seam along the edge, keeping the offscreen axis fixed.
         local tile=dock_art.size
-        y=floor(y/tile+.5)*tile
+        if horizontal then y=floor(y/tile+.5)*tile else x=floor(x/tile+.5)*tile end
     end
     return x,y
 end
@@ -144,7 +161,7 @@ function M.new(hero, seed, doctrine, arena, view_padding)
         x=0,y=0,px=0,py=0, dir_x=1,dir_y=0, wave=1, level=1,xp=0,need=16,kills=0,
         separation_grid={},free_buckets={},enemies={},shots={},enemy_shots={},hazards={},loot={},effects={},weapon={0,0,0,0,0,0,0,0}, artifact={0,0,0,0,0,0,0,0,0},
         evolved={},cooldown={0,0,0,0,0,0,0,0},damage={}, banned={}, rerolls=2, banishes=1,
-        next_spawn=0, spawn_reserve={}, spawn_entries=0,
+        next_spawn=0, spawn_reserve={}, spawn_entries=opening,
         elite_index=1,event_index=1, invincible=0, mode="run", slowed_until=0,
         arena=arena, view_padding=view_padding or {x=0,y=0},
         crates={}, next_crate=d.crates.first, frozen_until=0, spawned=opening,
@@ -154,12 +171,15 @@ function M.new(hero, seed, doctrine, arena, view_padding)
     if arena==3 then s.y=express.height/2; s.py=s.y end
     if arena==4 then s.x=bastion.start_x; s.px=s.x end
     s.weapon[hero]=1
-    local angle=random(s)*tau
     for i=1,opening do
-        local x,y=wave_entry(s,1,angle+i*tau/opening,i)
-        spawn(s,1,x,y)
+        local x,y,landing_y=wave_entry(s,1,i)
+        spawn(s,1,x,y,nil,landing_y)
     end
     return s
+end
+
+local function cue(s,kind,value,x,y)
+    if s.on_sound then s.on_sound(s,kind,value,x,y) end
 end
 
 local function hurt(s, amount,environment)
@@ -170,15 +190,40 @@ local function hurt(s, amount,environment)
         * damage_scale
         * (s.doctrine == 3 and 0.86 or s.doctrine == 2 and 1.10 or 1)
     s.invincible = 0.65
+    cue(s,"hurt")
 end
 
 local function add_xp(s, x, y, xp)
-    if #s.loot >= 190 then
-        for _, item in ipairs(s.loot) do
-            if item.kind=="xp" then item.xp=item.xp+xp; return end
+    x,y=floor_position(s,x,y,4)
+    if #s.loot>=d.xp_pickup_limit then
+        local nearest, nearest_dist, distant, distant_dist
+        local count=0
+        local pad=s.view_padding
+        for _,item in ipairs(s.loot) do
+            if item.kind=="xp" then
+                count=count+1
+                local distance=(item.x-x)^2+(item.y-y)^2
+                if not nearest_dist or distance<nearest_dist then
+                    nearest,nearest_dist=item,distance
+                end
+                local dx,dy=item.x-s.x,item.y-s.y
+                if abs(dx)>half_width+pad.x+24 or dy>upper_edge+pad.y+24 or dy<-(lower_edge+pad.y+24) then
+                    local from_hero=dx*dx+dy*dy
+                    if not distant_dist or from_hero>distant_dist then distant,distant_dist=item,from_hero end
+                end
+            end
+        end
+        if count>=d.xp_pickup_limit then
+            -- Keep late drops near the fight by reusing an offscreen pickup
+            -- when the nearest stack is too far from the kill.
+            if nearest_dist>40^2 and distant then
+                distant.x,distant.y=x,y
+                nearest=distant
+            end
+            nearest.xp=nearest.xp+xp
+            return
         end
     end
-    x,y=floor_position(s,x,y,4)
     s.loot[#s.loot+1]={x=x,y=y,kind="xp",xp=xp}
 end
 
@@ -190,10 +235,11 @@ local function damage(s,u,amount,weapon)
         or 1+(balance.weapon_damage_max_rank-1)*(rank-1)/(d.weapon_max-1)
     local weapon_scale=1+(reduction-1)*s.pressure
     local scaled=amount*(1+s.artifact[1]*0.08)*(s.hero==2 and 1.18 or 1)*(s.doctrine==2 and 1.12 or 1)
-        *(exposed and 1.20 or 1)*weapon_scale
+        *(exposed and 1.20 or 1)*weapon_scale*balance.weapon_damage_scale
     s.damage[weapon]=(s.damage[weapon] or 0)+min(u.hp,scaled)
     u.hp=u.hp-scaled
     u.flash=0.11
+    if weapon==5 then cue(s,"weapon",5) end
     if u.hp>0 then return end
     s.enemy_fell=true
     if #s.effects<25 then
@@ -231,9 +277,10 @@ local function rally_stragglers(s,heading,limit)
             or dy<-(lower_edge+padding.y+margin) or dy>upper_edge+padding.y+margin
         if offscreen and dx*s.dir_x+dy*s.dir_y< -60
             and u.hp>0 and not u.elite and not anchored(s,u) and u.kind~=6 and not u.warning and not u.spawn_until
+            and not u.landing_y
             and (u.attack_until or 0)<=s.time and (u.dash_until or 0)<=s.time and (u.recover_until or 0)<=s.time
             and (u.rallied_until or 0)<=s.time then
-            local x,y=wave_entry(s,u.kind,heading,limit+s.spawned)
+            local x,y=wave_entry(s,u.kind,limit+s.spawned,heading)
             u.x,u.y,u.px,u.py=x,y,x,y
             u.route_until,u.route_x,u.route_field=nil,nil,nil
             u.spawn_until=s.time+d.spawn_waves.spawn_warmup
@@ -288,7 +335,6 @@ local function maintain_population(s)
         if (u.x-s.x)^2+(u.y-s.y)^2<=reach^2 then near=near+1 end
         if u.kind==4 then turrets=turrets+1 elseif u.kind==5 then drones=drones+1 end
     end
-    local heading=s.moving and math.atan2(s.dir_y,s.dir_x) or random(s)*tau
     local roster=s.dock and s.wave==2 and d.dock_spawn.second_roster or d.waves[s.wave][4]
     local reserve=s.spawn_reserve
     for _=1,vacancies do
@@ -303,14 +349,13 @@ local function maintain_population(s)
         local kind=unit and unit.kind or wave_kind(s,roster)
         if s.wave==1 or kind==4 and turrets>=2 or kind==5 and drones>=3 then kind=1 end
         if kind==4 then turrets=turrets+1 elseif kind==5 then drones=drones+1 end
-        local bearing=unit and not s.moving and math.atan2(unit.y-s.y,unit.x-s.x) or heading
         s.spawn_entries=s.spawn_entries+1
-        local x,y=wave_entry(s,kind,bearing,s.spawn_entries)
+        local x,y,landing_y=wave_entry(s,kind,s.spawn_entries)
         if unit then
-            enter_battle(s,unit,x,y)
+            enter_battle(s,unit,x,y,landing_y)
             unit.interval=s.time+1.3
         else
-            unit=spawn(s,kind,x,y)
+            unit=spawn(s,kind,x,y,nil,landing_y)
             s.spawned=s.spawned+1
         end
         unit.spawn_until=s.time+config.spawn_warmup
@@ -324,7 +369,7 @@ local function maintain_population(s)
         s.spawned=s.spawned+1
     end
     if scan and s.moving then
-        rally_stragglers(s,heading,min(6,close_target-near-max(0,vacancies)))
+        rally_stragglers(s,math.atan2(s.dir_y,s.dir_x),min(6,close_target-near-max(0,vacancies)))
     end
 end
 
@@ -338,6 +383,7 @@ local function waves(s)
     end
     if s.time>=d.boss_at and not s.boss then
         s.boss=ring_spawn(s,6,175,random(s)*tau)
+        cue(s,"boss")
         s.notice=d.arena_foes[s.arena][6].." на арене"; s.notice_until=s.time+5
     end
     local event=d.events[s.event_index]
@@ -420,15 +466,25 @@ function M.vent_state(s,x,y)
         return M.vent_phase(s.time,(col*7+row*11)%4),sector.x,sector.y
     end
     if not s.alley then return "off" end
-    local row=floor(y/alley.height)
-    local section=alley.section(s.alley,row)
-    if not section.vent_x then return "off" end
-    return M.vent_phase(s.time,row%4),section.vent_x,section.vent_y
+    local section=alley.vent_at(s.alley,x,y)
+    if not section then return "off" end
+    return M.vent_phase(s.time,section.vent_phase),section.vent_x,section.vent_y
 end
 
 local function vents(s)
     if s.arena~=1 and s.arena~=2 then return end
     local state,cx,cy=M.vent_state(s,s.x,s.y)
+    if s.on_sound then
+        local nearby=(state=="warning" or state=="active") and (s.x-cx)^2+(s.y-cy)^2<144^2
+        if nearby then
+            if s.vent_sound_phase~=state or s.vent_sound_x~=cx or s.vent_sound_y~=cy then
+                cue(s,state=="warning" and "vent_warn" or "vent_burst",nil,cx,cy)
+                s.vent_sound_phase,s.vent_sound_x,s.vent_sound_y=state,cx,cy
+            end
+        else
+            s.vent_sound_phase=nil
+        end
+    end
     if state=="active" and (s.x-cx)^2+(s.y-cy)^2<d.vents.radius^2 then
         hurt(s,s.arena==1 and 10 or 12,true)
     end
@@ -514,11 +570,13 @@ local function attack(s,dt)
                         aim=math.atan2(s.dir_y,s.dir_x)
                     end
                     local threshold=cos(evo and 1.42 or 0.85)
+                    local amount=evo and (k==3 and 70 or 108) or 25+rank*6
+                    if k==3 then amount=amount*balance.flame_damage_scale end
                     for _,u in ipairs(s.enemies) do
                         local ux,uy=u.x-s.x,u.y-s.y
                         local range=sqrt(ux*ux+uy*uy)
                         if u.hp>0 and range<=radius and (k==4 or ux*cos(aim)+uy*sin(aim)>=range*threshold) then
-                            damage(s,u,evo and (k==3 and 70 or 108) or 25+rank*6,k)
+                            damage(s,u,amount,k)
                             if not u.elite and u.kind~=6 and rank>=4 then
                                 if k==3 then u.slow_until=s.time+0.38
                                 elseif range>0.01 and not u.warning then
@@ -586,7 +644,10 @@ local function attack(s,dt)
                 end
                 recharge=evo and 2.1 or 3.1-rank*0.12
             end
-            if recharge then s.cooldown[k]=recharge*(1-s.artifact[2]*0.06) end
+            if recharge then
+                s.cooldown[k]=recharge*(1-s.artifact[2]*0.06)
+                if k~=5 then cue(s,"weapon",k) end
+            end
         end
     end
 end
@@ -668,7 +729,9 @@ end
 
 local function spread(s,v,boss)
     local limit=ordinary_shot_limit+(boss and boss_shot_reserve or 0)
-    for i=1,min(v.count,limit-#s.enemy_shots) do
+    local shots=min(v.count,limit-#s.enemy_shots)
+    if shots>0 then cue(s,boss and "boss_impact" or "impact",nil,v.x,v.y) end
+    for i=1,shots do
         local angle=v.angle+(i-(v.count+1)*.5)*v.spacing
         s.enemy_shots[#s.enemy_shots+1]={kind=v.kind,x=v.x,y=v.y,px=v.x,py=v.y,
             vx=cos(angle)*v.speed,vy=sin(angle)*v.speed,radius=v.width,damage=v.damage,life=v.life}
@@ -751,6 +814,7 @@ local function bosses(s,u,distance,ux,uy,enraged)
         u.attack_radius=enraged and d.attacks.boss.enraged_radius or d.attacks.boss.radius
         u.dash_x,u.dash_y=ux,uy
         u.cast=boss_plan(s,u,enraged)
+        cue(s,"boss_warn",nil,u.target_x,u.target_y)
     end
 end
 
@@ -849,6 +913,7 @@ local function enemy_move(s,u,dt)
         u.attack_until,u.recover_until=s.time+.23,s.time+attack.recovery
         if attack.dash then
             u.dash_until=s.time+d.attacks.ram.duration
+            cue(s,"impact",nil,u.x,u.y)
             u.recover_until=u.dash_until+attack.recovery
         elseif attack.shots then
             spread(s,u.volley)
@@ -864,6 +929,9 @@ local function enemy_move(s,u,dt)
         local reach=(role=="guard" or role=="bite") and 18 or s.arena==1 and role=="slam" and 26
         u.target_x,u.target_y=reach and u.x+ux*reach or s.x,reach and u.y+uy*reach or s.y
         u.attack_radius=attack.radius
+        if attack.dash then cue(s,"dash_warn",nil,u.x,u.y)
+        elseif role=="steam" then cue(s,"vent_warn",nil,u.target_x,u.target_y)
+        elseif attack.windup>=.85 then cue(s,"area_warn",nil,u.target_x,u.target_y) end
         if attack.shots then
             u.volley=volley(role,u.x,u.y,math.atan2(uy,ux),attack.shots,.24,265,attack.width,attack.damage)
         end
@@ -891,32 +959,38 @@ local function enemy_attacks(s,dt)
             local duration=h.duration or .28
             if age>=duration or (h.owner and h.owner.hp<=0 and not h.fired) then
                 table.remove(s.hazards,i)
-            elseif h.kind=="summon" then
-                local limit=d.spawn_waves.combat_limit+4
-                if not h.fired and #s.enemies<limit then
-                    local unit=spawn(s,h.unit,h.x,h.y)
-                    unit.spawn_until=s.time+.26
-                    s.spawned=s.spawned+1
-                end
-                h.fired=true
             else
-                if h.dx then
-                    h.x,h.y=arena_position(s,h.x+h.dx*dt*62,h.y+h.dy*dt*62)
+                if not h.fired then
+                    local boss=h.owner and h.owner.kind==6
+                    local name=h.kind=="steam" and "vent_burst" or boss and "boss_impact" or "impact"
+                    cue(s,name,nil,h.x,h.y)
                 end
-                local dx,dy=s.x-h.x,s.y-h.y
-                local range=sqrt(dx*dx+dy*dy)
-                local in_sector=not h.half_arc or dx*cos(h.angle)+dy*sin(h.angle)>=range*cos(h.half_arc)
-                if range<h.radius and in_sector and (h.duration or not h.fired) then
-                    if h.kind=="slow" then s.slowed_until=max(s.slowed_until,s.time+.35)
-                    elseif h.kind=="magnet" then
-                        if range>.01 then
-                            s.x,s.y=move_hero(s,s.x-dx/range*dt*51,s.y-dy/range*dt*51)
-                        end
-                        for _,l in ipairs(s.loot) do
-                            local lx,ly=h.x-l.x,h.y-l.y
-                            if lx*lx+ly*ly<h.radius^2 then l.x,l.y=l.x+lx*dt,l.y+ly*dt end
-                        end
-                    else hurt(s,h.damage) end
+                if h.kind=="summon" then
+                    local limit=d.spawn_waves.combat_limit+4
+                    if not h.fired and #s.enemies<limit then
+                        local unit=spawn(s,h.unit,h.x,h.y)
+                        unit.spawn_until=s.time+.26
+                        s.spawned=s.spawned+1
+                    end
+                else
+                    if h.dx then
+                        h.x,h.y=arena_position(s,h.x+h.dx*dt*62,h.y+h.dy*dt*62)
+                    end
+                    local dx,dy=s.x-h.x,s.y-h.y
+                    local range=sqrt(dx*dx+dy*dy)
+                    local in_sector=not h.half_arc or dx*cos(h.angle)+dy*sin(h.angle)>=range*cos(h.half_arc)
+                    if range<h.radius and in_sector and (h.duration or not h.fired) then
+                        if h.kind=="slow" then s.slowed_until=max(s.slowed_until,s.time+.35)
+                        elseif h.kind=="magnet" then
+                            if range>.01 then
+                                s.x,s.y=move_hero(s,s.x-dx/range*dt*51,s.y-dy/range*dt*51)
+                            end
+                            for _,l in ipairs(s.loot) do
+                                local lx,ly=h.x-l.x,h.y-l.y
+                                if lx*lx+ly*ly<h.radius^2 then l.x,l.y=l.x+lx*dt,l.y+ly*dt end
+                            end
+                        else hurt(s,h.damage) end
+                    end
                 end
                 h.fired=true
             end
@@ -1076,6 +1150,16 @@ function M.step(s,dt,mx,my)
         local despawn_range=(s.arena==1 and (u.kind==4 and 505 or 580) or 1100)+view_extra
         if u.hp<=0 or (not u.elite and u.kind~=6 and (s.x-u.x)^2+(s.y-u.y)^2>despawn_range^2) then
             table.remove(s.enemies,i)
+        elseif u.landing_y then
+            u.px,u.py=u.x,u.y
+            local dy=u.landing_y-u.y
+            local step=d.spawn_waves.flight_entry_speed*dt
+            if abs(dy)<=step then
+                u.y,u.landing_y,u.spawn_until=u.landing_y,nil,nil
+                u.interval=max(u.interval,s.time+.25)
+            else
+                u.y=u.y+(dy<0 and -step or step)
+            end
         else
             u.px,u.py=u.x,u.y
             enemy_move(s,u,dt)

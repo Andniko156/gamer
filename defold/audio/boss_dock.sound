@@ -1,0 +1,4 @@
+sound: "/audio/boss_dock.wav"
+looping: 0
+group: "effects"
+gain: 1.0

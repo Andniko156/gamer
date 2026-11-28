@@ -2,10 +2,11 @@ return {
     duration = 600, boss_at = 540, weapon_max = 6, artifact_max = 5, slots = 4,
     viewport = {width=432, height=768, hero_y=.47},
     enemy_entry_padding = 96,
+    xp_pickup_limit = 190,
     spawn_waves = {
         initial = 10, growth = 1.5,
         combat_limit = 200, outer_distance = 520, update_interval = .25,
-        nearby_range = 285, spawn_warmup = .45,
+        nearby_range = 285, spawn_warmup = .45, flight_entry_speed = 145,
     },
     balance = {
         ramp_start=180, ramp_end=540,
@@ -13,6 +14,7 @@ return {
         boss_health=1.12, boss_speed=1.04,
         arena_damage={1,.60,.82,1},
         weapon_damage_max_rank=.92, weapon_damage_evolved=.88,
+        weapon_damage_scale=.70, enemy_health_scale=1.20, flame_damage_scale=.80,
     },
     dock_spawn = {second_roster = {1,2,2,3,5}, turret_entry_padding = 56},
     crates = {first=35, interval=62, lifetime=85, radius=165},

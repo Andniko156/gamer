@@ -34,5 +34,5 @@ s.weapon={0,0,0,0,0,0,0,0}
 run.step(s,dt,0,0)
 assert(data.spawn_waves.combat_limit==200)
 assert(#s.enemies==200 and #s.spawn_reserve==185)
-assert(s.boss and math.abs(s.boss.hp-data.foes[6][1]*data.balance.boss_health)<1e-8)
+assert(s.boss and math.abs(s.boss.hp-data.foes[6][1]*data.balance.boss_health*data.balance.enemy_health_scale)<1e-8)
 print("Bastion: three decks, bidirectional seams, rear poses and 200 active + 185 reserve passed")

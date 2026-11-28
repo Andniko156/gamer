@@ -1,6 +1,7 @@
 local run = require "game.run"
 local data = require "game.data"
 local collision = require "game.dock_collision"
+local bastion = require "game.bastion"
 local config = data.spawn_waves
 local dt = 1/60
 
@@ -18,7 +19,25 @@ end
 local s=unarmed()
 assert(#s.enemies==10 and run.enemy_population(s)==10)
 local side_edge=data.viewport.width/2+data.enemy_entry_padding
-for _,unit in ipairs(s.enemies) do assert(math.abs(unit.x-s.x)>side_edge) end
+local function entry_side(s,unit)
+    local dx,dy=unit.x-s.x,unit.y-s.y
+    local vertical_edge=data.viewport.height*(dy<0 and data.viewport.hero_y or 1-data.viewport.hero_y)
+    if math.abs(dy)>vertical_edge+s.view_padding.y+data.enemy_entry_padding then
+        return dy<0 and "bottom" or "top"
+    end
+    if math.abs(dx)>side_edge+s.view_padding.x then
+        return dx<0 and "left" or "right"
+    end
+    error("an ordinary enemy appeared within the camera margin")
+end
+
+local function check_four_sides(s)
+    local sides={}
+    for _,unit in ipairs(s.enemies) do sides[entry_side(s,unit)]=true end
+    assert(sides.top and sides.bottom and sides.left and sides.right)
+end
+
+check_four_sides(s)
 local offscreen,visible=fighter(-340,0),fighter(-180,0)
 s.enemies[1],s.enemies[2]=offscreen,visible
 run.step(s,dt,1,0)
@@ -75,12 +94,12 @@ for seed=1,32 do
     s.enemies={}
     run.step(s,dt,seed%2==0 and 1 or -1,0)
     assert(#s.enemies==config.initial)
+    check_four_sides(s)
     for _,unit in ipairs(s.enemies) do
-        assert(math.abs(unit.x-s.x)>side_edge+s.view_padding.x)
-        assert((unit.x-s.x)*(seed%2==0 and 1 or -1)>0)
         assert(not collision.blocked(s.dock,unit.x,unit.y,12))
+        local side=entry_side(s,unit)
+        if side=="left" or side=="right" then entrant=unit end
     end
-    entrant=s.enemies[1]
 end
 s.next_spawn=math.huge
 s.enemies={entrant}
@@ -102,24 +121,40 @@ run.step(s,dt,0,0)
 assert(s.kills==1 and #s.enemies==10)
 for _,unit in ipairs(s.enemies) do assert(unit.hp>0) end
 
--- The train uses its longitudinal route. Other arenas use the side edges.
+-- Streets and carriages have two open ends. The Bastion also admits
+-- airborne enemies that enter from above and below.
 local function check_offscreen(s,unit)
+    local side=entry_side(s,unit)
     if s.alley or s.arena==3 then
-        local dy=unit.y-s.y
-        local edge=data.viewport.height*(dy<0 and data.viewport.hero_y or 1-data.viewport.hero_y)
-        assert(math.abs(dy)>edge+s.view_padding.y+data.enemy_entry_padding)
+        assert(side=="top" or side=="bottom")
         if s.arena==3 then assert(math.abs(unit.x)<=145) end
-    else
-        assert(math.abs(unit.x-s.x)>side_edge+s.view_padding.x)
+    elseif s.arena==4 then
+        assert((unit.landing_y~=nil)==(side=="top" or side=="bottom"))
+        assert(not bastion.blocked(unit.x,unit.landing_y or unit.y,12))
     end
 end
 for arena=2,4 do
     local other=unarmed(17,arena,{x=24,y=93})
     assert(#other.enemies==10 and other.next_spawn==0 and #other.spawn_reserve==0)
     for _,unit in ipairs(other.enemies) do check_offscreen(other,unit) end
+    if arena==4 then check_four_sides(other) end
     local victim=table.remove(other.enemies)
     run.step(other,dt,0,0)
     assert(#other.enemies==10 and other.enemies[10]~=victim)
     check_offscreen(other,other.enemies[10])
 end
-print("Waves: minimum grows from 10 to 385, with immediate replacement and offscreen approaches on all arenas")
+
+local sky=unarmed(33,4,{x=24,y=93})
+local incoming=sky.enemies[2]
+assert(incoming.landing_y and entry_side(sky,incoming)=="top")
+local landing_y=incoming.landing_y
+sky.invincible,sky.next_spawn=0,math.huge
+sky.enemies={incoming}
+for _=1,480 do
+    run.step(sky,dt,0,0)
+    assert(sky.enemies[1]==incoming and sky.hp==sky.max_hp)
+    if not incoming.landing_y then break end
+end
+assert(not incoming.landing_y and incoming.y==landing_y)
+assert(not bastion.blocked(incoming.x,incoming.y,12))
+print("Waves: 10 to 385 enemies, instant replacement, four-sided Dock and Bastion entries, and both corridor ends")

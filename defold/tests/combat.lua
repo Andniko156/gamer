@@ -1,6 +1,7 @@
 local run = require "game.run"
 local data = require "game.data"
 local dt = 1/60
+local disk_damage = 24*data.balance.weapon_damage_scale
 
 local function arena(hero,kind,x,y,stage)
     local s=run.new(hero,5,1,stage)
@@ -17,9 +18,9 @@ do
     local s,u=arena(5,1,0,30)
     s.weapon[5]=1
     for _=1,15 do run.step(s,dt,0,0) end
-    assert((s.damage[5] or 0)==24,"disk must hit once while sweeping past target")
+    assert((s.damage[5] or 0)==disk_damage,"disk must hit once while sweeping past target")
     run.step(s,dt,0,0)
-    assert(s.damage[5]==24,"contact must not apply damage every simulation tick")
+    assert(s.damage[5]==disk_damage,"contact must not apply damage every simulation tick")
 end
 
 -- Cooldown artifacts still accelerate repeat disk hits after the sweep fix.
@@ -31,7 +32,7 @@ do
         for _=1,16 do run.step(s,dt,0,0) end
         amounts[#amounts+1]=s.damage[5]
     end
-    assert(amounts[1]==24 and amounts[2]==48,"cooldown artifact must affect disk hits")
+    assert(amounts[1]==disk_damage and amounts[2]==2*disk_damage,"cooldown artifact must affect disk hits")
 end
 
 -- The slowest hero can leave a mortar's locked zone before impact.
@@ -149,6 +150,6 @@ do
     run.step(s,dt,0,0)
     assert(s.effects[26].kind=="rivet_flash")
     local opening=run.new(1,9)
-    assert(opening.enemies[1].hp>25 and opening.enemies[1].hp<=50)
+    assert(opening.enemies[1].hp==data.foes[1][1]*data.balance.enemy_health_scale)
 end
 print("Combat checks passed: weapons, projectiles, locked telegraphs, boss cycles, recovery, inventory")

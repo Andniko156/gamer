@@ -46,8 +46,8 @@ do
     local row=0
     while not alley.section(s.alley,row).vent_x do row=row+1 end
     local section=alley.section(s.alley,row)
-    s.x,s.y=section.vent_x,section.vent_y
-    local offset=(row%4)*3
+    s.x,s.y=alley.nearby_floor(s.alley,section.vent_x,section.vent_y,10)
+    local offset=section.vent_phase*3
     s.time=12+9.5-offset
     assert(run.vent_state(s,s.x,s.y)=="warning")
     run.step(s,dt,0,0)
@@ -58,7 +58,7 @@ do
     assert(math.abs(s.hp-(s.max_hp-7.2))<0.001,"active vent deals one contact hit")
     run.step(s,dt,0,0)
     assert(math.abs(s.hp-(s.max_hp-7.2))<0.001,"invulnerability limits vent contact damage")
-    s.x,s.y=section.center,section.vent_y;s.invincible=0
+    s.x,s.y=0,section.vent_y;s.invincible=0
     run.step(s,dt,0,0)
     assert(math.abs(s.hp-(s.max_hp-7.2))<0.001,"walking out of vent range avoids damage")
     assert(run.vent_state(empty(3),140,140)=="off")

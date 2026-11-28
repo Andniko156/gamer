@@ -15,6 +15,10 @@ path_settings {
   profile: "Pixel Art"
 }
 path_settings {
+  path: "/art/alley_buildings.atlas"
+  profile: "Pixel Art"
+}
+path_settings {
   path: "/art/alley_props.atlas"
   profile: "Pixel Art"
 }
